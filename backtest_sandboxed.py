@@ -337,15 +337,19 @@ def compute_strategy_hash(strategy_path: Path) -> str:
 
 
 def log_audit_event(event_type: str, details: dict):
-    """Append to immutable audit log."""
+    """Append to immutable audit log. Gracefully handles read-only filesystems."""
     record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "event": event_type,
         **details,
     }
-    with open(AUDIT_LOG, "a") as f:
-        json.dump(record, f)
-        f.write("\n")
+    try:
+        with open(AUDIT_LOG, "a") as f:
+            json.dump(record, f)
+            f.write("\n")
+    except OSError:
+        # Read-only filesystem (Docker container) — print to stdout instead
+        print(f"AUDIT: {json.dumps(record)}")
 
 
 def run_backtest_subprocess() -> dict:
