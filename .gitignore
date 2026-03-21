@@ -4,3 +4,42 @@ __pycache__/
 *.pyc
 .cache/
 .venv/
+
+# Secrets — never commit
+.env
+.env.*
+*.key
+*.pem
+*.p12
+config.json
+credentials.json
+auth.json
+secrets.*
+*_secret*
+*_token*
+*.credential*
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data checksums (local only)
+checksums.json
+data_checksums.json
+
+# Audit trail (local only — contains run metadata)
+audit.jsonl
+
+# Docker artifacts
+*.tar
+docker-compose.override.yml
+
+# Database files
+*.sqlite
+*.db
