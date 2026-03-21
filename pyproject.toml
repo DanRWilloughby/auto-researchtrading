@@ -8,5 +8,5 @@ dependencies = [
     "pandas>=2.1.0,<3.0",
     "scipy>=1.11.0,<2.0",
     "requests[security]>=2.31.0,<3.0",
-    "pyarrow>=14.0.2,<18.0",    # >=14.0.2 fixes CVE-2023-47248
+    "pyarrow>=18.0.0",           # >=14.0.2 fixes CVE-2023-47248, >=18 has py3.13 wheels
 ]

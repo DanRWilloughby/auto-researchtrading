@@ -549,17 +549,15 @@ def run_backtest(strategy, data: dict) -> BacktestResult:
         portfolio.equity = portfolio.cash + sum(abs(v) for v in portfolio.positions.values()) + unrealized_pnl
 
         # Apply funding rates (on open positions)
-        # Funding is applied every 8 hours on Hyperliquid.
-        # Only apply at 8-hour boundaries (0:00, 8:00, 16:00 UTC)
-        ts_hours = (ts // (3600 * 1000)) % 24  # hour of day from ms timestamp
-        is_funding_hour = ts_hours in (0, 8, 16)
-        if is_funding_hour:
-            for sym, pos_notional in list(portfolio.positions.items()):
-                if sym in bar_data:
-                    fr = bar_data[sym].funding_rate
-                    # Funding: longs pay when positive, shorts receive
-                    funding_payment = pos_notional * fr
-                    portfolio.cash -= funding_payment
+        # Hyperliquid pays funding every hour at 1/8th of the 8-hour rate.
+        # The API returns the 8-hour rate, so we divide by 8 per hourly bar.
+        # Source: https://hyperliquid.gitbook.io/hyperliquid-docs/trading/funding
+        for sym, pos_notional in list(portfolio.positions.items()):
+            if sym in bar_data:
+                fr = bar_data[sym].funding_rate
+                # Funding: longs pay when positive, shorts receive
+                funding_payment = pos_notional * fr / 8.0
+                portfolio.cash -= funding_payment
 
         # Get signals from strategy
         try:
@@ -620,35 +618,21 @@ def run_backtest(strategy, data: dict) -> BacktestResult:
                     portfolio.positions[sig.symbol] = sig.target_position
                     portfolio.entry_prices[sig.symbol] = exec_price
                     trade_log.append(("open", sig.symbol, delta, exec_price, 0))
-
-                elif (current_pos > 0) != (sig.target_position > 0):
-                    # Position REVERSAL (sign flip) — close old side, open new side
-                    old_entry = portfolio.entry_prices.get(sig.symbol, exec_price)
-                    # 1. Close the existing position entirely
-                    if old_entry > 0 and abs(current_pos) > 0:
-                        direction = 1.0 if current_pos > 0 else -1.0
-                        pnl = direction * abs(current_pos) * (exec_price - old_entry) / old_entry
-                    portfolio.cash += abs(current_pos) + pnl
-                    trade_log.append(("close", sig.symbol, -current_pos, exec_price, pnl))
-                    # 2. Open the new position on the other side
-                    portfolio.cash -= abs(sig.target_position)
-                    portfolio.positions[sig.symbol] = sig.target_position
-                    portfolio.entry_prices[sig.symbol] = exec_price
-                    trade_log.append(("open", sig.symbol, sig.target_position, exec_price, 0))
-
                 else:
-                    # Same-side modification (scaling up or down)
+                    # Modifying position (same side or reversal)
                     old_notional = abs(current_pos)
                     old_entry = portfolio.entry_prices.get(sig.symbol, exec_price)
+                    # Realize PnL on reduced portion
                     if abs(sig.target_position) < abs(current_pos):
-                        # Reducing position — realize PnL on reduced portion
                         reduced = abs(current_pos) - abs(sig.target_position)
                         if old_entry > 0 and abs(current_pos) > 0:
                             direction = 1.0 if current_pos > 0 else -1.0
                             pnl = direction * reduced * (exec_price - old_entry) / old_entry
                         portfolio.cash += reduced + pnl
                     elif abs(sig.target_position) > abs(current_pos):
-                        # Increasing position — add notional, update weighted entry
+                        added = abs(sig.target_position) - abs(current_pos)
+                        portfolio.cash -= added
+                        # Weighted average entry
                         added = abs(sig.target_position) - abs(current_pos)
                         portfolio.cash -= added
                         if old_notional + added > 0:
