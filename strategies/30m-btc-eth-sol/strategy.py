@@ -137,8 +137,8 @@ class Strategy:
 
             # Signal 2: Short momentum
             ret_vshort = (closes[-1] - closes[-SHORT_WINDOW]) / closes[-SHORT_WINDOW]
-            vshort_bull = ret_vshort > dyn_threshold * 0.7
-            vshort_bear = ret_vshort < -dyn_threshold * 0.7
+            vshort_bull = ret_vshort > dyn_threshold * 0.8
+            vshort_bear = ret_vshort < -dyn_threshold * 0.8
 
             # Signal 3: EMA crossover
             ema_fast_arr = ema(closes[-(EMA_SLOW+10):], EMA_FAST)
