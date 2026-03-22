@@ -10,8 +10,8 @@ ACTIVE_SYMBOLS = ["BTC", "ETH", "SOL"]
 SYMBOL_WEIGHTS = {"BTC": 0.33, "ETH": 0.33, "SOL": 0.33}
 
 # Lookback windows (roughly 1.5-2x the 1h values to cover similar time periods)
-SHORT_WINDOW = 8      # 4 hours
-MED_WINDOW = 16       # 8 hours
+SHORT_WINDOW = 6      # 3 hours
+MED_WINDOW = 14       # 7 hours
 LONG_WINDOW = 48      # 24 hours
 EMA_FAST = 10
 EMA_SLOW = 42
@@ -21,7 +21,7 @@ RSI_BEAR = 50
 RSI_OVERBOUGHT = 70
 RSI_OVERSOLD = 30
 
-MACD_FAST = 10
+MACD_FAST = 8
 MACD_SLOW = 20
 MACD_SIGNAL = 7
 
