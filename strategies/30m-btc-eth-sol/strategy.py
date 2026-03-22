@@ -204,7 +204,7 @@ class Strategy:
                 if symbol in self.entry_prices:
                     entry = self.entry_prices[symbol]
                     pnl = (mid - entry) / entry if current_pos > 0 else (entry - mid) / entry
-                    if pnl > 0.03:  # 3% profit target
+                    if pnl > 0.025:  # 2.5% profit target
                         target = 0.0
 
                 # RSI exit
