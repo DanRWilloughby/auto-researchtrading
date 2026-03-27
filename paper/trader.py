@@ -326,7 +326,6 @@ def run_one_tick(strategy, state: dict, symbols: list, interval: str, strategy_d
             elif abs(sig.target_position) > abs(current_pos):
                 added = abs(sig.target_position) - abs(current_pos)
                 portfolio.cash -= added
-                portfolio.cash -= added
                 if old_notional + added > 0:
                     new_entry = (old_entry * old_notional + exec_price * added) / (old_notional + added)
                     portfolio.entry_prices[sig.symbol] = new_entry

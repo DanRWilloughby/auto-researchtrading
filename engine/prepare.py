@@ -829,8 +829,6 @@ def run_backtest(strategy, data: dict, interval="1h") -> BacktestResult:
                     elif abs(sig.target_position) > abs(current_pos):
                         added = abs(sig.target_position) - abs(current_pos)
                         portfolio.cash -= added
-                        added = abs(sig.target_position) - abs(current_pos)
-                        portfolio.cash -= added
                         if old_notional + added > 0:
                             new_entry = (old_entry * old_notional + exec_price * added) / (old_notional + added)
                             portfolio.entry_prices[sig.symbol] = new_entry
