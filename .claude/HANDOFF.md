@@ -1,44 +1,57 @@
-# Session Handoff - 2026-03-26 (Evening)
+# Session Handoff - 2026-03-27 (Afternoon)
 
 ## What We Did
-- Checked both paper traders — both healthy, 1h at +0.88%, 30m at +0.44%
-- Deep-dived 1h-8coin: full parameter breakdown, hold time analysis (66% = 1hr), fee analysis (5bps, 25% of gross)
-- Built Hourly P&L chart component (recharts, cumulative + per-hour toggle)
-- Built Simulated Return Projector (8 toggleable assumptions, 3/6/12mo projections, leverage integration)
-- Deployed both to Vercel dashboard (merged feature branch to main first to preserve existing features)
-- Extrapolated returns vs S&P 500: ~137% annualized compound (3.6 days sample, very noisy)
-- **Designed 4 new strategy concepts** for auto-research:
-  1. **Pairs/Stat Arb** (1h) — market-neutral spread trading between correlated pairs
-  2. **Funding Rate Mean-Reversion** (1h) — contrarian funding as primary signal
-  3. **Volatility Mean-Reversion** (1h) — regime-based: MR in high-vol, breakout in low-vol
-  4. **Multi-Timeframe Fusion** (30m) — 1h trend filter on 30m entries
-- Ran baselines: Pairs -5.12, Funding -0.76, Vol MR +3.07, MTF Fusion +14.18
-- **Launched 4 parallel auto-research agents** running overnight in isolated worktrees
+- Ran split tests (val vs test) on 4 overnight auto-research strategies
+- **MTF-Fusion confirmed as robust**: 89% OOS retention (33.34 → 29.83), deployed as paper trader
+- Designed and built **daily-return scoring function** targeting 1% daily with DD < 10%
+- Created 4 new aggressive strategy variants for $20K compounding goal:
+  - 30m-highoctane (3.5x leverage, 8 coins) — overfit, 18% test DD
+  - 15m-scalper (2.15x leverage, 15m bars) — interesting, better on test than val
+  - 30m-voltarget (adaptive sizing) — safest, never >5.5% DD, scores 666-943
+  - **30m-concentrated** (1.2x leverage, BTC/ETH/SOL, SOL-overweight) — **winner**
+- Auto-research ran 250+ experiments across all 4 variants
+- Ran regime tests: bear, bull, choppy, 13-month long-duration
+- Deployed 30m-concentrated as paper trader (scaled BASE from 1.50→1.20 for OOS safety)
+- Built **shadow execution tracker** in paper trader: tracks 4 slippage scenarios side by side
+- Fixed return projector bug (hardcoded $1K trade size causing capital-dependent returns)
+- Updated dashboard: dropdown strategy selector, greyed-out inactive strategies
+- Deployed MTF-fusion + concentrated as paper traders on VM
 
-## OVERNIGHT RESEARCH RUNNING
-| Agent | Strategy | Baseline | ~Time/Run | Worktree |
-|---|---|---|---|---|
-| pairs-arb-researcher | 1h-pairs-arb | -5.12 | ~23s | isolated |
-| funding-mr-researcher | 1h-funding-mr | -0.76 | ~24s | isolated |
-| vol-mr-researcher | 1h-vol-mr | 3.07 | ~690s→optimizing | isolated |
-| mtf-fusion-researcher | 30m-mtf-fusion | 14.18 | ~690s | isolated |
+## Paper Traders Running on VM (100.109.85.37)
 
-Research agents are already iterating — vol-mr agent vectorized code, pairs-arb tuning thresholds, funding-mr adjusting entry/exit levels. All results auto-logged to each strategy's results.tsv.
+| Strategy | Cron | Interval | Coins | Leverage | Started |
+|---|---|---|---|---|---|
+| 1h-8coin | :05 every hr | 1h | 8 coins | ~1x | Mar 22 |
+| 30m-8coin | :05,:35 | 30m | 8 coins | ~1x | Mar 22 |
+| 30m-mtf-fusion | :10,:40 | 30m | 8 coins | ~0.5x | Mar 27 AM |
+| **30m-concentrated** | **:15,:45** | **30m** | **BTC/ETH/SOL** | **1.2x** | **Mar 27 PM** |
 
-## Morning Review Checklist
-- [ ] Check `strategies/1h-pairs-arb/results.tsv` — how many experiments, best score
-- [ ] Check `strategies/1h-funding-mr/results.tsv` — did it turn positive?
-- [ ] Check `strategies/1h-vol-mr/results.tsv` — did drawdown come down from 12%?
-- [ ] Check `strategies/30m-mtf-fusion/results.tsv` — did it beat 24.41 (30m champion)?
-- [ ] Review the best strategy.py from each worktree
-- [ ] Sync results to dashboard
-- [ ] Consider deploying best performers as paper traders
+## 30m-Concentrated Key Metrics
+- Val score: 4,228 (DD 5.7%), Test score: 3,167 (DD 8.6%)
+- Position sizing: BTC 20%, ETH 30%, SOL 50% weights × 1.20 base
+- At $20K: BTC $4.8K, ETH $7.2K, SOL $12K = $24K total (1.2x)
+- Regime results: Bear 1516, Bull 1997, Choppy 1845 — positive everywhere
+- 13-month train: DD 12% (over budget) — sizing intentionally reduced to 1.20
 
-## Current State
-- Dashboard: https://dashboard-green-nu-53.vercel.app (hourly PnL + return projector live)
-- Paper traders: 1h-8coin and 30m-8coin running on VM
-- Vercel: CLI-only deploys, no GitHub integration
-- overnight-lab main branch has full feature set
+## Shadow Execution Tracker
+paper_state.json now tracks `shadow_curves` and `shadow_cost_deltas` for:
+- **Ideal**: 0 bps slip, 2 bps maker fee
+- **Paper**: 1 bps slip, 5 bps taker fee (baseline)
+- **Realistic**: 3 bps slip, 5 bps taker fee
+- **Pessimistic**: 5 bps slip, 8 bps fee
+
+## Dashboard
+- URL: https://dashboard-green-nu-53.vercel.app
+- Dropdown strategy selector (replaces horizontal scroll)
+- Inactive strategies greyed out
+- 30m CONCENTRATED and 30m MTF FUSION both selectable with experiments + paper trading
+
+## Next Steps
+- [ ] Monitor concentrated paper trader for 2-3 days — check daily returns vs shadow scenarios
+- [ ] Build dashboard component to visualize shadow execution curves side by side
+- [ ] If concentrated holds up live, consider deploying with real $20K on Hyperliquid
+- [ ] Potentially blend concentrated + voltarget for adaptive sizing on the concentrated signal set
+- [ ] Push overnight-lab dashboard code changes to git
 
 ## Quick Context
-Major research expansion session. Built dashboard analytics (hourly PnL, return projector), then designed and launched 4 new strategy concepts for overnight auto-research. The MTF Fusion baseline (14.18) is already competitive. 4 agents are running in parallel worktrees, each with a detailed research program. Check results.tsv files in the morning for full experiment logs.
+Major research session. Validated MTF-fusion (conservative, Sharpe 30+) and built a new high-return variant (30m-concentrated) targeting 1% daily on $20K with 1.2x leverage. Both deployed as paper traders with shadow execution tracking. The concentrated strategy works across all market regimes but needs live validation before real capital.
