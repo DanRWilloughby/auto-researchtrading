@@ -933,6 +933,58 @@ def compute_score(result: BacktestResult) -> float:
     score = result.sharpe * math.sqrt(trade_count_factor) - drawdown_penalty - turnover_penalty
     return score
 
+
+def compute_score_daily_return(result: BacktestResult, max_dd_pct: float = 10.0) -> float:
+    """
+    Score focused on maximizing average daily return with drawdown constraint.
+    Returns avg_daily_return_pct * 1000 (so 1% daily = score 10).
+    Hard penalty if max DD exceeds threshold. Rewards consistency.
+    """
+    if result.num_trades < 20:
+        return -999.0
+    if result.max_drawdown_pct > max_dd_pct:
+        return -999.0
+
+    eq = result.equity_curve
+    if len(eq) < 50:
+        return -999.0
+
+    final_equity = eq[-1]
+    if final_equity <= eq[0] * 0.5:
+        return -999.0
+
+    # Compute daily returns from equity curve
+    # Approximate: divide equity curve into daily chunks
+    total_return = (final_equity - eq[0]) / eq[0]
+    num_bars = len(eq) - 1
+    # Val period is ~9 months ≈ 270 days
+    # For 30m: ~17520 bars/year, val ≈ 13140 bars → ~270 trading days → bars_per_day ≈ 48
+    # For 1h:  ~8760 bars/year, val ≈ 6570 bars → ~270 trading days → bars_per_day ≈ 24
+    # For 15m: ~35040 bars/year, val ≈ 26280 bars → ~270 trading days → bars_per_day ≈ 96
+    bars_per_day = max(num_bars / 270.0, 1.0)
+    num_days = num_bars / bars_per_day
+
+    if num_days < 30:
+        return -999.0
+
+    avg_daily_return = (1 + total_return) ** (1 / num_days) - 1
+
+    # Consistency bonus: compute daily equity snapshots and check what % of days are positive
+    day_equities = [eq[int(i * bars_per_day)] for i in range(int(num_days) + 1) if int(i * bars_per_day) < len(eq)]
+    positive_days = 0
+    for i in range(1, len(day_equities)):
+        if day_equities[i] > day_equities[i - 1]:
+            positive_days += 1
+    consistency = positive_days / max(len(day_equities) - 1, 1)
+
+    # Soft DD penalty: linearly penalize approaching the threshold
+    dd_headroom = max(0, max_dd_pct - result.max_drawdown_pct) / max_dd_pct
+
+    # Score = daily_return_pct * 1000 * consistency_bonus * dd_headroom_bonus
+    # 1% daily → base score 10, with bonuses up to ~15
+    score = avg_daily_return * 100 * 1000 * (0.7 + 0.3 * consistency) * (0.8 + 0.2 * dd_headroom)
+    return score
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------

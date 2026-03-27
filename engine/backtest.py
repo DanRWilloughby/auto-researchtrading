@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from prepare import (
-    load_data, run_backtest, compute_score, TIME_BUDGET,
+    load_data, run_backtest, compute_score, compute_score_daily_return, TIME_BUDGET,
     DEFAULT_SYMBOLS, VALID_INTERVALS, ALL_SYMBOLS,
 )
 
@@ -121,6 +121,10 @@ if __name__ == "__main__":
                         help="Free-text notes to log with this run")
     parser.add_argument("--no-log", action="store_true",
                         help="Skip auto-logging to results.tsv")
+    parser.add_argument("--score", default="sharpe", choices=["sharpe", "daily-return"],
+                        help="Scoring function: sharpe (default) or daily-return (max daily return with DD constraint)")
+    parser.add_argument("--max-dd", type=float, default=10.0,
+                        help="Max drawdown %% threshold for daily-return scoring (default: 10)")
     args = parser.parse_args()
 
     # Resolve strategy path
@@ -153,7 +157,10 @@ if __name__ == "__main__":
         print(f"Loaded {total_bars} bars across {list(data.keys())}")
 
         result = run_backtest(strategy, data, interval=args.interval)
-        score = compute_score(result)
+        if args.score == "daily-return":
+            score = compute_score_daily_return(result, max_dd_pct=args.max_dd)
+        else:
+            score = compute_score(result)
 
         t_end = time.time()
 

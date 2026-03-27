@@ -1,0 +1,105 @@
+exp	split	score	sharpe	return_pct	max_dd_pct	trades	win_rate	profit_factor	symbols	date	notes
+baseline	val	-5.12	-4.71	-21.9	23.2447	1954	49.5	0.77	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Pairs stat arb baseline: ETH/BTC, SOL/ETH, AVAX/SOL, LINK/ETH
+exp1	val	-3.59	-3.59	-7.8	8.8041	1289	47.0	0.79	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	wider entry 2.5, tighter exit 0.2, stop 3.5, size 3%, cooldown 5
+exp2	val	-3.14	-3.14	-8.3	9.4246	1492	50.9	0.85	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	new pairs: BTC/ETH SOL/AVAX LINK/XRP DOGE/SUI, same params as exp1
+exp3	val	-1.80	-1.80	-4.4	5.8807	650	51.2	0.87	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	lookback 72, entry 3.0, stop 4.0
+exp4	val	-2.15	-2.15	-5.5	6.4983	602	47.7	0.84	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	lookback 96, entry 3.0
+exp5	val	-2.59	-2.59	-6.3	7.1260	714	48.9	0.80	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	lookback 60, entry 3.0
+exp6	val	-2.22	-2.22	-5.8	7.6719	826	51.5	0.86	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	lookback 72, entry 2.8
+exp7	val	-1.96	-1.96	-3.3	3.6898	684	48.8	0.88	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	add max hold 24 bars, back to lookback 72 entry 3.0
+exp8	val	0.20	0.20	0.2	1.1933	130	48.4	1.12	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	EMA-based z-score instead of SMA
+exp9	val	-2.69	-2.69	-5.9	6.5513	322	48.1	0.69	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	EMA z-score, entry 2.5
+exp10	val	0.79	0.79	0.7	1.0775	60	60.0	1.34	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	EMA z-score, entry 3.5 (more selective)
+exp11	val	1.36	1.96	0.9	0.3288	24	58.3	2.22	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	EMA z-score, entry 4.0, stop 5.5
+exp12	val	1.95	2.30	1.5	0.7973	36	55.6	2.66	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	8 pairs (added BTC/SOL ETH/AVAX SOL/LINK XRP/DOGE)
+exp13	val	0.69	0.69	0.9	2.3165	50	56.0	1.55	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	14 pairs to boost trade count
+exp14	val	1.95	2.30	1.9	1.0615	36	55.6	2.66	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	8 pairs, position size 4%
+exp15	val	1.95	2.30	2.4	1.3250	36	55.6	2.65	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	8 pairs, position size 5%
+exp16	val	1.86	1.86	2.2	1.3250	56	57.1	1.88	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry 3.75, 8 pairs, size 5%
+exp17	val	1.95	2.30	1.5	0.7973	36	55.6	2.66	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry 4.0, cooldown 2, size 3%
+exp18	val	1.96	2.25	1.5	0.7973	38	57.9	2.69	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	10 pairs (added AVAX/LINK ETH/SOL)
+exp19	val	1.57	1.67	1.7	1.1224	44	61.9	2.60	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	12 pairs (added BTC/XRP SUI/AVAX)
+exp20	val	2.41	2.77	1.5	0.4313	38	68.4	3.40	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	10 pairs, exit 0.5 (faster profit taking)
+exp21	val	3.06	3.51	1.5	0.2104	38	84.2	5.24	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	10 pairs, exit 0.8 (faster exit)
+exp22	val	2.31	2.65	1.1	0.2570	38	78.9	3.89	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	10 pairs, exit 1.0
+exp23	val	2.53	2.90	1.2	0.2280	38	78.9	3.82	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	10 pairs, exit 0.9
+exp24	val	3.12	3.58	1.6	0.2104	38	84.2	5.49	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	10 pairs, exit 0.7
+exp25	val	2.42	2.78	1.5	0.4313	38	73.7	3.73	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	10 pairs, exit 0.6
+exp26	val	2.41	2.77	1.5	0.4313	38	68.4	3.36	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	lookback 84, exit 0.7
+exp27	val	1.42	2.25	0.6	0.1177	20	70.0	7.14	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry 4.5, stop 6.0
+exp28	val	1.99	2.35	0.7	0.1747	36	77.8	5.82	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	EMA span 48 (faster adaptation) separate from lookback 72
+exp29	val	1.85	1.85	1.6	0.8774	56	60.7	2.18	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	EMA span 96 (slower adaptation)
+exp30	val	3.12	3.58	1.6	0.2104	38	84.2	5.49	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	volume confirmation filter (1.2x avg volume required)
+exp31	val	3.12	3.58	1.6	0.2104	38	84.2	5.49	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	volume filter 1.5x
+exp32	val	-999.00	2.58	0.5	0.1047	8	75.0	4.64	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	spread momentum filter: only enter when z-score is decelerating
+exp33	val	2.83	3.43	1.5	0.2104	34	76.5	5.06	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	price ratio spread instead of log spread
+exp34	val	-0.87	-0.94	-1.5	1.9823	43	84.2	5.99	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	dynamic position sizing: 2-5% based on z-score magnitude
+exp35	val	3.12	3.58	1.6	0.2104	38	84.2	5.49	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	min_history 73, cooldown 1 (boost trade count)
+exp36	val	1.45	1.45	2.2	1.5978	83	75.6	2.10	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	all 28 pairs from 8 coins
+exp37	val	1.25	1.57	0.9	0.9205	32	75.0	3.01	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	all 28 pairs, entry 4.5, stop 6.0
+exp38	val	3.06	3.51	1.6	0.2352	38	84.2	6.80	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	asymmetric leg sizing based on volatility tiers
+exp39	val	3.07	3.52	1.5	0.2104	38	84.2	5.26	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	exit 0.75 (fine-tune between 0.7 and 0.8)
+exp40	val	0.98	1.13	0.3	0.1603	38	52.6	1.68	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	trailing z-score exit: exit when z reverts 1.5 from peak
+exp41	val	1.32	1.42	1.4	1.1814	43	81.0	2.67	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	all 28 pairs, entry 4.2
+exp42	val	3.12	3.58	1.6	0.2104	38	84.2	5.49	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	max 3 simultaneous pair trades
+exp43	val	-0.85	-0.85	-1.1	1.4400	55	66.7	1.06	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	residual regression approach: OLS beta-adjusted spread
+exp44	val	2.79	3.19	1.0	0.1245	38	73.7	3.34	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	relative exit: exit when z reverts 60% from entry level
+exp45	val	3.12	3.58	1.6	0.2104	38	84.2	5.49	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	funding rate boost: lower entry by 0.5 if funding supports trade
+exp46	val	1.88	1.88	1.6	0.9331	77	71.1	1.89	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	funding-gated lower entry: 3.5 if funding supports, else 4.0
+exp47	val	3.16	3.16	2.2	0.4464	50	88.0	6.86	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	12 pairs: added ETH/XRP BTC/DOGE
+exp48	val	3.16	3.16	2.2	0.4464	50	88.0	6.86	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	13 pairs: added SUI/LINK
+exp49	val	3.11	3.11	2.2	0.4464	52	84.6	6.47	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	13 pairs: replaced SUI/LINK with BTC/AVAX
+exp50	val	3.16	3.16	3.0	0.5935	50	88.0	6.85	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	12 pairs, position size 4%
+exp51	val	3.16	3.16	3.7	0.7398	50	88.0	6.85	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	12 pairs, position size 5%
+exp52	val	1.22	1.22	1.0	0.6267	99	71.4	1.59	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	dual timeframe z-score (fast 48 + slow 96), entry 3.5 with confirmation
+exp53	val	3.16	3.16	2.2	0.4464	50	88.0	6.86	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	12 pairs, stop 5.0 (tighter)
+exp54	val	3.25	3.25	2.4	0.4464	50	80.0	7.41	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	exit 0.65 (fine tune)
+exp55	val	2.13	2.13	1.8	1.0059	50	76.0	3.56	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	exit 0.6
+exp56	val	3.18	3.18	2.3	0.4464	50	80.0	6.76	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	exit 0.68
+exp57	val	2.66	2.66	2.0	0.7645	50	76.0	4.80	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	exit 0.63
+exp58	val	3.39	3.39	2.5	0.4464	52	80.8	7.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry 3.9, exit 0.65
+exp59	val	3.18	3.18	2.4	0.4464	66	72.7	3.67	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry 3.8, exit 0.65
+exp60	val	3.39	3.39	2.5	0.4464	52	80.8	7.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry 3.95, exit 0.65
+exp61	val	3.17	3.17	2.2	0.4464	50	84.0	7.15	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	lookback 64, entry 3.9, exit 0.65
+exp62	val	2.00	2.00	1.7	1.0038	58	69.0	2.46	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	lookback 80, entry 3.9, exit 0.65
+exp63	val	3.39	3.39	2.5	0.4464	52	80.8	7.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	lookback 72, entry 3.9, exit 0.65, cooldown 0
+exp64	val	3.39	3.39	2.5	0.4464	52	80.8	7.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position scaling: add 2% when z>5.0
+exp65	val	3.39	3.39	2.5	0.4464	52	80.8	7.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	cleaned up: removed cooldown (not used), simplified
+exp66	val	-9.24	-7.71	-45.5	45.5547	555	77.4	11.23	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	partial exit: scale down position as z approaches exit level
+exp67	val	2.44	2.44	2.0	0.8058	56	75.0	3.57	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	13 pairs: added DOGE/LINK
+exp68	val	2.17	2.17	2.1	1.3393	54	77.8	3.80	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	13 pairs: try XRP/SUI
+exp69	val	3.39	3.39	2.5	0.4464	52	80.8	7.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	13 pairs: try SOL/SUI
+exp70	val	2.49	2.49	1.5	0.3774	52	73.1	3.67	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	time-decaying exit: threshold rises 0.05/bar from 0.65 to max 2.5
+exp72	val	3.11	3.11	2.3	0.4464	56	78.6	4.30	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry 3.85, exit 0.65
+exp73	val	3.33	3.33	2.4	0.4464	52	80.8	7.03	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry 3.9, exit 0.66
+exp74	val	3.34	3.34	2.5	0.4464	52	80.8	7.60	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry 3.9, exit 0.64
+exp76	val	1.04	1.73	0.3	0.1177	18	77.8	5.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	faster EMA alpha (span 36 vs lookback 72)
+exp77	val	1.22	1.22	1.5	1.3301	74	54.3	1.84	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	slower EMA alpha (span 120)
+exp78	val	-999.00	0.00	0.0	0.0000	0	0.0	0.00	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	spread velocity filter: only enter when spread is reverting (5-bar velocity)
+exp79	val	-999.00	0.00	0.0	0.0000	0	0.0	0.00	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	spread velocity filter: 1-bar reversal
+exp80	val	3.39	3.39	2.5	0.4464	52	80.8	7.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	longer init lookback 120 (more stable baseline), EMA span 72
+exp81	val	0.08	0.09	0.1	1.0115	46	52.2	1.08	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	cumulative return difference spread instead of log ratio
+exp82	val	3.40	3.40	6.8	1.1739	52	80.8	7.65	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 8% (aggressive)
+exp83	val	3.40	3.40	8.5	1.4594	52	80.8	7.63	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 10%
+exp84	val	3.41	3.41	13.0	2.1595	52	80.8	7.58	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 15%
+exp85	val	3.41	3.41	17.6	2.8410	52	80.8	7.53	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 20%
+exp86	val	3.42	3.42	27.3	4.1512	52	80.8	7.44	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 30%
+exp87	val	3.44	3.44	48.7	6.5782	52	80.8	7.27	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 50%
+exp88	val	3.48	3.48	115.4	11.7193	52	80.8	6.92	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 100%
+exp89	val	3.32	3.54	325.1	19.2591	52	80.8	6.45	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 200% (2x leverage per leg)
+exp90	val	3.47	3.52	205.5	15.8547	52	80.8	6.65	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 150%
+exp91	val	3.50	3.50	148.3	13.4761	52	80.8	6.80	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 120%
+exp92	val	3.50	3.50	166.3	14.3011	52	80.8	6.75	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 130%
+exp93	val	3.51	3.51	185.3	15.0933	52	80.8	6.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 140%
+exp94	val	3.51	3.51	175.7	14.7012	52	80.8	6.72	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 135%
+exp95	val	3.51	3.51	179.5	14.8590	52	80.8	6.71	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 137%
+exp96	val	3.51	3.51	181.4	14.9374	52	80.8	6.71	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 138%
+exp97	val	3.51	3.51	183.4	15.0155	52	80.8	6.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	position size 139%
+exp98-final-confirm	val	3.51	3.51	181.4	14.9374	52	80.8	6.71	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	BEST CONFIG: 12 pairs, entry 3.9, exit 0.65, stop 5.5, size 138%, EMA z-score lookback 72
+exp99	val	3.43	3.43	166.2	14.9374	52	88.5	6.46	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	size 138%, exit 0.70
+exp100	val	3.36	3.36	169.0	14.9374	50	80.0	6.54	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry 4.0, exit 0.65, size 138%
+best-final	val	3.51	3.51	181.4	14.9374	52	80.8	6.71	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	FINAL BEST: 12 pairs, lookback 72, entry 3.9, exit 0.65, stop 5.5, size 138%, EMA z-score
+split-test	val	-999.00	1.94	17.6	3.8265	8	75.0	2.34	BTC/ETH/SOL	2026-03-27	OOS validation
+split-test	test	-999.00	0.00	0.0	0.0000	0	0.0	0.00	BTC/ETH/SOL	2026-03-27	OOS validation
+split-test-8coin	val	3.51	3.51	181.4	14.9374	52	80.8	6.71	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-27	OOS validation, all 8 coins
+split-test-8coin	test	0.80	1.01	23.9	15.5088	34	76.5	1.99	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-27	OOS validation, all 8 coins

@@ -54,6 +54,15 @@ logger = logging.getLogger("paper-trader")
 
 HL_INFO_URL = "https://api.hyperliquid.xyz/info"
 
+# Shadow execution scenarios: {name: (slippage_bps, fee_rate)}
+# Tracks how equity would differ under different execution assumptions
+SHADOW_SCENARIOS = {
+    "ideal":       (0.0, MAKER_FEE),         # 0 bps slip, maker fee (2 bps)
+    "paper":       (SLIPPAGE_BPS, TAKER_FEE), # 1 bps slip, taker fee (5 bps) — current default
+    "realistic":   (3.0, TAKER_FEE),          # 3 bps slip, taker fee
+    "pessimistic": (5.0, 0.0008),             # 5 bps slip, 8 bps fee (worst case)
+}
+
 # ---------------------------------------------------------------------------
 # Live data fetching
 # ---------------------------------------------------------------------------
@@ -142,6 +151,8 @@ def load_state(strategy_dir: str, interval: str) -> dict:
         "history_buffers": {},
         "peak_equity": INITIAL_CAPITAL,
         "strategy_state": {},
+        "shadow_cost_deltas": {name: 0.0 for name in SHADOW_SCENARIOS},
+        "shadow_curves": {name: [{"ts": int(time.time() * 1000), "equity": INITIAL_CAPITAL}] for name in SHADOW_SCENARIOS},
     }
 
 
@@ -322,6 +333,20 @@ def run_one_tick(strategy, state: dict, symbols: list, interval: str, strategy_d
             portfolio.positions[sig.symbol] = sig.target_position
             action = "MODIFY"
 
+        # Shadow execution: track cost deltas for each scenario
+        if "shadow_cost_deltas" not in state:
+            state["shadow_cost_deltas"] = {name: 0.0 for name in SHADOW_SCENARIOS}
+        for scenario_name, (scen_slip_bps, scen_fee_rate) in SHADOW_SCENARIOS.items():
+            scen_slip = current_price * scen_slip_bps / 10000
+            scen_fee = abs(delta) * scen_fee_rate
+            # Base cost was: slippage effect on PnL + fee
+            base_slip_cost = abs(delta) * (SLIPPAGE_BPS / 10000)
+            base_fee_cost = fee
+            scen_slip_cost = abs(delta) * (scen_slip_bps / 10000)
+            # Delta = how much MORE this scenario costs vs the base paper execution
+            cost_delta = (scen_slip_cost + scen_fee) - (base_slip_cost + base_fee_cost)
+            state["shadow_cost_deltas"][scenario_name] += cost_delta
+
         trade = {
             "ts": now_ms,
             "time": datetime.now(timezone.utc).isoformat(),
@@ -362,12 +387,30 @@ def run_one_tick(strategy, state: dict, symbols: list, interval: str, strategy_d
         "equity": round(equity, 2),
     })
 
+    # Update shadow equity curves
+    if "shadow_curves" not in state:
+        state["shadow_curves"] = {name: [] for name in SHADOW_SCENARIOS}
+    if "shadow_cost_deltas" not in state:
+        state["shadow_cost_deltas"] = {name: 0.0 for name in SHADOW_SCENARIOS}
+    for scenario_name in SHADOW_SCENARIOS:
+        shadow_eq = round(equity - state["shadow_cost_deltas"].get(scenario_name, 0.0), 2)
+        if scenario_name not in state["shadow_curves"]:
+            state["shadow_curves"][scenario_name] = []
+        state["shadow_curves"][scenario_name].append({"ts": now_ms, "equity": shadow_eq})
+
     # Print status
     dd = (state["peak_equity"] - equity) / state["peak_equity"] * 100 if state["peak_equity"] > 0 else 0
     ret = (equity - INITIAL_CAPITAL) / INITIAL_CAPITAL * 100
     pos_str = ", ".join(f"{s}: ${v:,.0f}" for s, v in portfolio.positions.items()) if portfolio.positions else "flat"
 
     logger.info(f"EQUITY: ${equity:,.2f} ({ret:+.2f}%) | DD: {dd:.2f}% | Positions: {pos_str}")
+
+    # Shadow summary
+    shadow_parts = []
+    for name in ["ideal", "realistic", "pessimistic"]:
+        delta = state["shadow_cost_deltas"].get(name, 0.0)
+        shadow_parts.append(f"{name}: {'+'if delta<=0 else ''}{-delta:,.0f}")
+    logger.info(f"Shadow cost deltas: {' | '.join(shadow_parts)}")
     logger.info(f"Trades this session: {len(state['trade_log'])} | Bars processed: {len(bar_data)}")
 
     return state

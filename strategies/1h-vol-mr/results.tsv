@@ -1,0 +1,77 @@
+exp	split	score	sharpe	return_pct	max_dd_pct	trades	win_rate	profit_factor	symbols	date	notes
+baseline	val	3.07	3.07	46.6	12.0746	815	55.8	1.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Vol mean-reversion baseline: BB-based regime detection, MR in high-vol, breakout in low-vol
+exp1-vectorize	val	2.03	2.03	48.2	13.6259	1318	55.0	1.38	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Vectorize bb_width_percentile and vol_zscore: sliding_window_view instead of Python loops
+exp2-vectorize-exact	val	2.07	2.11	52.4	15.8766	1310	54.6	1.43	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Vectorize bb_width_percentile matching original off-by-one exactly
+exp3-baseline-verify	val	2.07	2.11	52.4	15.8766	1310	54.6	1.43	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Verify baseline timing with original unmodified code
+exp4-vectorize-verified	val	2.07	2.11	52.4	15.8766	1310	54.6	1.43	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Vectorized BB width matching original exactly - verify score match
+exp5-half-size-3pos	val	0.82	0.82	4.6	4.4959	727	52.8	1.17	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Position size 0.08->0.04, max positions 6->3 for DD reduction
+exp6-moderate-size-tighter-stops	val	2.56	2.56	33.5	6.3618	1136	52.3	1.58	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Position 0.06, ATR_STOP 3.0/5.0, max pos 4
+exp7-smaller-tighter	val	1.67	1.67	16.0	5.2893	1380	49.7	1.31	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Position 0.05, ATR_STOP 2.5/4.5, max pos 4
+exp8-rsi-75-25	val	2.48	2.48	33.1	6.0268	1084	52.4	1.61	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	RSI thresholds 70/30->75/25 for higher conviction entries
+exp9-regime-75-25	val	2.04	2.04	25.9	6.5687	1186	54.1	1.44	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Regime thresholds 80/20->75/25: more signals, wider regime bands
+exp10-regime-85-15	val	0.91	0.91	9.4	6.7645	1174	52.5	1.18	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Regime thresholds 80/20->85/15: more extreme regime detection
+exp11-per-coin-only	val	2.08	2.08	26.6	7.2557	1124	52.0	1.42	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Per-coin regime only, no BTC global override
+exp12-cooldown-4	val	2.46	2.46	31.8	6.4490	1134	54.9	1.56	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Cooldown 2->4 bars to reduce whipsaws
+exp13-momentum-confirm	val	2.27	2.27	29.4	5.9005	1068	52.8	1.53	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Momentum confirmation for high-vol MR entries: require price already reversing
+exp14-dd-brake-trade-limit	val	2.35	2.35	25.7	4.7919	1136	52.3	1.56	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	DD brake (halve size at 3% DD), max trade loss 1.5% of equity
+exp15-dd-brake-tuned	val	2.20	2.20	25.0	5.7350	1136	52.3	1.51	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	DD brake 4% trigger (was 3%), max trade loss 2% (was 1.5%)
+exp16-size-0.07-dd-brake	val	2.23	2.23	26.5	5.2139	1136	52.3	1.54	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Position size 0.06->0.07 with DD brake+trade limit still active
+exp17-5pos	val	2.44	2.44	29.8	4.7140	1465	55.1	1.55	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Max positions 4->5 with DD brake+trade limit
+exp18-6pos	val	1.26	1.26	12.9	6.4897	1782	51.0	1.24	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Max positions 5->6 with DD brake+trade limit
+exp19-hysteresis-3	val	1.03	1.03	9.2	6.4108	1529	52.0	1.20	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Regime hysteresis: require 3 consecutive bars to confirm regime change
+exp20-sma-confirm	val	2.49	2.49	31.4	5.0637	1419	54.3	1.54	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	SMA20 confirmation for MR entries: short only above SMA, long only below SMA
+exp21-dd-brake-2.5pct	val	2.53	2.53	31.0	4.7363	1419	54.3	1.56	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	DD brake 3%->2.5% trigger with SMA confirmation
+exp22-dd-brake-2pct	val	2.34	2.34	25.4	4.3840	1419	54.3	1.52	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	DD brake 2.5%->2% trigger
+exp23-bb-squeeze	val	1.38	1.38	11.6	9.0401	1689	54.8	1.26	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	BB squeeze filter for low-vol entries: only enter when pctile < 10
+exp24-sma-target-exit	val	2.19	2.19	25.8	5.1731	1447	56.7	1.52	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	MR exit: target SMA20 or RSI 65/35 (was RSI 60/40 only)
+exp25-mr-only	val	-1.13	-1.13	-6.7	10.1114	2096	62.6	0.93	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	High-vol MR only, disable low-vol breakout entries
+exp26-asym-short-stops	val	2.01	2.01	20.4	5.2536	1617	55.1	1.36	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Asymmetric stops: shorts get 0.8x tighter stops (crypto upward bias)
+exp27-bb-14	val	1.88	1.88	21.2	5.8419	1481	51.9	1.38	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	BB period 20->14 for more responsive regime detection
+exp28-bb-24	val	1.75	1.75	17.4	4.9971	1499	53.8	1.32	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	BB period 20->24 for more stable regime detection
+exp29-rsi-14	val	1.13	1.13	10.2	5.0029	1239	49.3	1.21	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	RSI period 8->14 for smoother MR signals
+exp30-rsi-5	val	0.94	0.94	7.7	6.5466	1707	54.2	1.20	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	RSI period 8->5 for faster MR signals
+exp31-lowvol-ema-exit	val	1.47	1.47	12.9	6.1217	3129	42.1	1.26	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Low-vol breakout exit: close when EMA crossover flips direction
+exp32-ema-12-26	val	2.33	2.33	27.2	4.8973	1427	54.4	1.52	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	EMA pair 7/26->12/26 for low-vol breakouts
+exp33-time-exit-48	val	2.73	2.73	27.6	4.9614	2241	57.7	1.38	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Time-based exit for low-vol breakouts: close after 48 bars if unresolved
+exp34-time-exit-36	val	3.66	3.66	47.6	4.0185	2470	59.8	1.55	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Time-based exit 48->36 bars for low-vol breakouts
+exp35-time-exit-24	val	1.45	1.45	13.3	6.8763	3033	57.2	1.21	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Time-based exit 36->24 bars for low-vol breakouts
+exp36-time-exit-30	val	1.12	1.12	8.6	5.5902	2707	57.1	1.18	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Time-based exit 36->30 bars for low-vol breakouts
+exp37-time-exit-42	val	1.73	1.73	16.3	4.7309	2344	57.9	1.26	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Time-based exit 36->42 bars for low-vol breakouts
+exp38-time-exit-mr-12	val	4.08	4.08	55.4	4.1091	2563	58.2	1.59	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Time exit for high-vol MR too: 12 bars max hold
+exp39-time-exit-mr-8	val	2.73	2.73	32.1	4.1600	2705	55.4	1.39	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Time exit for high-vol MR: 12->8 bars
+exp40-time-exit-mr-16	val	3.61	3.61	46.2	4.1350	2483	58.8	1.52	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Time exit for high-vol MR: 12->16 bars
+exp41-size-0.08	val	3.53	3.53	58.1	4.5135	2563	58.2	1.52	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Position size 0.06->0.08 with all risk controls active
+exp42-6pos	val	3.80	3.80	54.4	4.9142	2938	57.5	1.53	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Max positions 5->6 with time exits and risk controls
+exp43-regime-sizing	val	4.51	4.51	65.1	4.0367	2563	58.2	1.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Regime sizing: high-vol 0.04 (counter-trend), low-vol 0.07 (trend)
+exp44-extreme-sizing	val	4.43	4.43	69.5	4.2070	2563	58.2	1.74	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	More extreme regime sizing: HV 0.03, LV 0.08
+exp45-atr-stop-3.5	val	4.53	4.53	64.4	3.9091	2541	58.5	1.69	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	ATR stop mult 3.0->3.5 for high-vol (slightly wider)
+exp46-atr-stop-4.0	val	4.40	4.40	61.6	3.9091	2529	58.4	1.67	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	ATR stop mult 3.5->4.0 for high-vol
+exp47-lowvol-stop-4.0	val	3.68	3.68	46.5	4.5759	2672	57.3	1.53	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Low-vol ATR stop 5.0->4.0 (time exit covers the rest)
+exp48-graduated-brake	val	4.73	4.73	70.8	4.6327	2541	58.5	1.73	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Graduated DD brake: linear reduction instead of step function
+exp49-no-sma-confirm	val	4.40	4.40	64.3	4.8982	2571	58.3	1.64	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Remove SMA confirmation for MR entries (time exit handles risk)
+exp50-cooldown-3	val	4.58	4.58	69.8	4.7950	2510	58.2	1.73	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Cooldown 2->3 bars
+exp51-vol-term-struct	val	4.61	4.61	70.7	4.7668	2291	58.1	1.76	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Vol term structure filter for MR: only enter when short vol > long vol
+exp52-trade-loss-1pct	val	4.73	4.73	70.8	4.6327	2541	58.5	1.73	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Max trade loss 1.5%->1.0% for tighter per-trade risk
+exp53-long-only-mr	val	4.62	4.62	68.8	4.5526	1826	57.5	1.83	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	High-vol MR: long-only (correlated selloffs = buy opportunity)
+exp54-ema-5-20	val	3.53	3.53	44.6	5.3602	2583	58.1	1.52	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	EMA pair 7/26->5/20 for low-vol breakouts
+exp55-momentum-breakout	val	1.57	1.57	15.3	6.5124	2584	55.7	1.23	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Low-vol breakout + momentum confirmation (6-bar returns)
+exp56-lowvol-size-0.08	val	4.75	4.75	81.6	4.9750	2541	58.5	1.75	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Low-vol size 0.07->0.08
+exp57-lowvol-size-0.09	val	4.72	4.72	91.8	5.2702	2541	58.5	1.76	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Low-vol size 0.08->0.09
+exp58-ema-separation	val	4.47	4.47	73.6	4.9750	2550	59.2	1.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	EMA separation threshold 0.2% for low-vol breakout direction
+exp59-profit-lock	val	3.55	3.55	50.5	4.8670	2698	59.4	1.48	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Profit lock: tighten trailing stop to 2x ATR after 1% profit
+exp60-mr-exit-55-45	val	4.48	4.48	77.0	4.9812	2579	58.4	1.72	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	MR exit RSI thresholds 60/40->55/45 (quicker exits)
+exp61-mr-exit-65-35	val	4.38	4.38	74.5	4.9659	2497	56.7	1.69	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	MR exit RSI thresholds 60/40->65/35 (let profits run)
+exp62-highvol-size-0.05	val	4.66	4.66	82.7	5.1503	2541	58.5	1.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	High-vol size 0.04->0.05 (time exits protect)
+exp63-vol-lookback-120	val	4.75	4.75	81.6	4.9750	2541	58.5	1.75	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Vol long lookback 168->120 (5 days instead of 7)
+exp64-min-history-250	val	4.68	4.68	79.9	4.9750	2511	58.1	1.74	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	MIN_HISTORY 180->250 for more stable initial signals
+exp65-tp-3pct-mr	val	4.59	4.59	77.3	5.0207	2579	58.9	1.71	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Take profit at 3% for high-vol MR trades
+exp66-full-stop-5pct	val	4.75	4.75	81.6	4.9750	2541	58.5	1.75	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Full entry stop when DD > 5% (2x DD_BRAKE_PCT)
+exp67-btc-confirm-regime	val	3.68	3.68	58.0	4.7002	2512	58.1	1.55	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	BTC regime only applies to coins with bb_pctile > 60 or < 40
+exp68-conviction-sizing	val	3.37	3.37	58.9	5.6683	2631	55.8	1.49	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	BB percentile-based conviction sizing: more extreme regime = larger size
+exp69-lowvol-stop-5.5	val	4.72	4.72	80.2	5.2681	2511	58.9	1.72	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Low-vol ATR stop 5.0->5.5 (wider for breakout run)
+exp70-mr-time-10	val	4.05	4.05	64.1	4.9884	2615	55.7	1.60	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	MR time exit 12->10 bars
+exp71-final-verify	val	4.75	4.75	81.6	4.9750	2541	58.5	1.75	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Final verification of best strategy
+split-test	val	2.66	2.66	18.1	3.4998	1237	56.8	1.54	BTC/ETH/SOL	2026-03-27	OOS validation
+split-test	test	-2.10	-2.10	-7.5	8.5752	1287	51.1	0.83	BTC/ETH/SOL	2026-03-27	OOS validation
+split-test-8coin	val	4.75	4.75	81.6	4.9750	2541	58.5	1.75	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-27	OOS validation, all 8 coins
+split-test-8coin	test	-0.91	-0.91	-6.1	10.2287	2551	53.3	0.97	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-27	OOS validation, all 8 coins
