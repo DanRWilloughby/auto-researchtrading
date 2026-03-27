@@ -1,0 +1,16 @@
+=== TEST SPLIT (30m) ===
+Loaded 39456 bars across ['BTC', 'ETH', 'SOL']
+---
+score:              21.959433
+sharpe:             21.984696
+total_return_pct:   65.826691
+max_drawdown_pct:   0.251566
+num_trades:         9275
+win_rate_pct:       80.630503
+profit_factor:      16.765032
+annual_turnover:    52526292.41
+backtest_seconds:   300.0
+total_seconds:      300.1
+start_equity:       $100,000
+end_equity:         $165,827
+

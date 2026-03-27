@@ -1,0 +1,3 @@
+{"ts": 1774196950632, "time": "2026-03-22T16:29:13.742257+00:00", "symbol": "BTC", "action": "OPEN_SHORT", "price": 68677.1316, "size": -2640.0, "target_pos": -2640.0, "pnl": 0.0, "fee": 1.32}
+{"ts": 1774196950632, "time": "2026-03-22T16:29:13.743541+00:00", "symbol": "ETH", "action": "OPEN_SHORT", "price": 2077.8922, "size": -2640.0, "target_pos": -2640.0, "pnl": 0.0, "fee": 1.32}
+{"ts": 1774196950632, "time": "2026-03-22T16:29:13.743694+00:00", "symbol": "SOL", "action": "OPEN_SHORT", "price": 87.2823, "size": -2640.0, "target_pos": -2640.0, "pnl": 0.0, "fee": 1.32}

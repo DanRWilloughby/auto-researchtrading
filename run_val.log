@@ -1,0 +1,16 @@
+=== VAL SPLIT (30m) ===
+Loaded 39312 bars across ['BTC', 'ETH', 'SOL']
+---
+score:              24.239105
+sharpe:             24.309426
+total_return_pct:   83.949287
+max_drawdown_pct:   0.208341
+num_trades:         9776
+win_rate_pct:       80.640925
+profit_factor:      16.244378
+annual_turnover:    57032112.67
+backtest_seconds:   202.2
+total_seconds:      202.3
+start_equity:       $100,000
+end_equity:         $183,949
+
