@@ -1,0 +1,5 @@
+a question. if we are reading it at 07 and the candle starts on the hour are we missing edge right there? is that accurate?
+
+---
+
+also can you make sure this is synced with the vercel dashboard and live with all the backtesting history regime analysis and research experiments that were done?

@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "930b127e1175",
+  "session_id": "b18806c8-7755-4b29-8287-8f4afbd331d2",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-10T18:00:30.179996Z",
+  "branch": "autotrader/30m-exp1",
+  "checkpoints_count": 2,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-6[1m]",
+  "turn_id": "9fee80e31531",
+  "token_usage": {
+    "input_tokens": 339,
+    "cache_creation_tokens": 231133,
+    "cache_read_tokens": 22503189,
+    "output_tokens": 121507,
+    "api_call_count": 152
+  },
+  "session_metrics": {
+    "turn_count": 9
+  }
+}
