@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "fbf1ed868fc6",
+  "session_id": "b18806c8-7755-4b29-8287-8f4afbd331d2",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-10T17:10:01.418284Z",
+  "branch": "autotrader/30m-exp1",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "engine/backtest.py",
+    "engine/equity_data.py",
+    "engine/prepare.py",
+    "engine/sweep.py",
+    "engine/validate.py",
+    "pyproject.toml",
+    "strategies/1h-equities/EQUITY-MOMENTUM-STRATEGY-REPORT.md",
+    "strategies/1h-equities/RESEARCH.md",
+    "strategies/1h-equities/results.tsv",
+    "strategies/1h-equities/strategy.py",
+    "uv.lock"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-6[1m]",
+  "turn_id": "815f737e4b5b",
+  "token_usage": {
+    "input_tokens": 278,
+    "cache_creation_tokens": 180256,
+    "cache_read_tokens": 10997036,
+    "output_tokens": 90390,
+    "api_call_count": 97
+  },
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-10T17:10:00.870389Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 2959,
+    "human_modified": 50,
+    "human_removed": 0,
+    "total_committed": 2959,
+    "total_lines_changed": 3009,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}

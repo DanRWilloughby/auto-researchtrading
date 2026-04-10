@@ -1,0 +1,29 @@
+can we look to develop a strategy similar to the 30M consolidated strategy that we're papertrading same goal of 1% daily return with equities or trading S&P 500 etc. where there is a lot more depth on the books.  let me know how e might build this experiment out
+
+---
+
+I'm okay with leverage ya know. lets build this out. use enough different tickers theres enough trading opportunity and try and consider non-correlated assets. or whatever you think.  But yeah lets cook bro
+
+---
+
+not yet.  I want you to run experiments to test this and optimize it further.  we only ran 7 right?
+
+---
+
+what happened
+
+---
+
+okay so how do we further validate this. can you test it on a different period. run it on different regimes. can you prove correlation or lack there of.  lets flesh this out before we just move to paper trading.
+
+---
+
+what is the next thing we need to test here.  before turning it on live
+
+---
+
+okay can you test this with the 1 bar delay like you said?  I also think you should define that. overnight gap risk. look at it, we could also install a rule of close out every day to reduce this risk if needed.  We should add short borrowing cots for sure.  Yes buiild and test all this
+
+---
+
+okay can you write all of this up in a formal thesis report please. explain the testing process, the underlying assets, the diversification, the testing that has been done against regimes and with different risk analysis etc.  And then model the expected returns out from there and map steps forward from this point on.  want to be able to drop it in a doc and share it

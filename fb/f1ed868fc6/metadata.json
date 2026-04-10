@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "fbf1ed868fc6",
+  "strategy": "manual-commit",
+  "branch": "autotrader/30m-exp1",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "engine/backtest.py",
+    "engine/equity_data.py",
+    "engine/prepare.py",
+    "engine/sweep.py",
+    "engine/validate.py",
+    "pyproject.toml",
+    "strategies/1h-equities/EQUITY-MOMENTUM-STRATEGY-REPORT.md",
+    "strategies/1h-equities/RESEARCH.md",
+    "strategies/1h-equities/results.tsv",
+    "strategies/1h-equities/strategy.py",
+    "uv.lock"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fb/f1ed868fc6/0/metadata.json",
+      "transcript": "/fb/f1ed868fc6/0/full.jsonl",
+      "content_hash": "/fb/f1ed868fc6/0/content_hash.txt",
+      "prompt": "/fb/f1ed868fc6/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 278,
+    "cache_creation_tokens": 180256,
+    "cache_read_tokens": 10997036,
+    "output_tokens": 90390,
+    "api_call_count": 97
+  }
+}
