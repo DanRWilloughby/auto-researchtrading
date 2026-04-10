@@ -9,26 +9,30 @@
 - Added realistic execution features to `engine/prepare.py`: 1-bar delayed execution, short borrow costs, EOD flatten
 - Validated under realistic execution: OOS still 4,932% return, 9.3% DD, Sharpe 23.26, ~1.08% daily
 - Wrote formal thesis report (`EQUITY-MOMENTUM-STRATEGY-REPORT.md`) ready for sharing
+- Added `--equity` mode to `paper/trader.py` — yfinance data, market hours check, equity cost model
+- Deployed equity paper trader to VM cron: `7 14-20 * * 1-5` (hourly during US market hours)
+- Added "Deep Validation" tab to the Vercel dashboard with regime charts, walk-forward bars, correlation, execution reality check, Monte Carlo, per-symbol PnL
+- Fixed dashboard sync script to copy `*.json` from strategy directories (was only copying .tsv/.csv/.jsonl)
 
 ## Current State
-- Strategy is optimized and validated across 3 splits + 11 regimes + 11 walk-forward windows
-- Realistic execution model confirmed: strategy survives 1-bar delay + short borrow
-- Key insight: alpha is overwhelmingly from overnight holds (overnight momentum strategy), not intraday
-- 133 experiments in `results.tsv`, report in `EQUITY-MOMENTUM-STRATEGY-REPORT.md`
-- Code committed and pushed to `autotrader/30m-exp1`
+- **Dashboard live:** https://dashboard-green-nu-53.vercel.app — select "1h EQUITIES" dropdown, "Deep Validation" tab
+- **Paper trading live:** VM cron at :07 past each hour during market hours, alongside crypto strategies
+- **Auto-sync:** Hourly cron pulls VM data and redeploys Vercel when changed
+- Strategy optimized + validated across 3 splits, 11 regimes, 11 walk-forward windows
+- Alpha is overwhelmingly from overnight holds (overnight momentum strategy)
+- Dashboard source is in `overnight-lab/projects/2026-03-22_autoresearch-trading-dashboard/dashboard/` (NOT in this repo)
 
 ## Pending / Not Yet Tested
-- [ ] Alpaca paper trading integration (adapt `paper/trader.py` for equities)
-- [ ] Real-time execution latency testing
-- [ ] Actual short borrow rate verification (assumed 5% flat, real rates vary by ticker)
-- [ ] Market impact at scale (strategy tested at $100K; may not work above $500K on XBI/EEM)
-- [ ] Overnight gap P&L attribution (measured aggregate impact but not per-event)
+- [ ] Paper trading needs 20+ trading days of data before evaluation
+- [ ] Actual short borrow rate verification (assumed 5% flat, real rates vary)
+- [ ] Market impact at scale (tested at $100K; may not work above $500K on XBI/EEM)
+- [ ] Overnight gap P&L attribution per-event
+- [ ] Cron timing: consider moving from :07 to :03 for tighter execution (risk: yfinance candle not ready)
 
 ## Next Steps
-- [ ] Phase 1: Set up Alpaca paper trading account and wire up the paper trader
-- [ ] Phase 2: Run paper trading for 20+ trading days, compare to backtest expectations
-- [ ] Phase 3: If tracking error < 2% daily, deploy micro-live ($1K-5K)
-- [ ] Consider: whether to run this alongside or instead of the crypto 30m-concentrated strategy
+- [ ] Monitor paper trading for 20+ days, compare equity curve to backtest
+- [ ] If tracking error < 2% daily, deploy micro-live ($1K-5K) on Alpaca
+- [ ] Consider running at 2x leverage initially (standard margin) before scaling to 3x (portfolio margin)
 
 ## Quick Context
-Built a 10-ETF equity momentum strategy that passes every validation test we threw at it — 133 experiments, 11 regimes, walk-forward, Monte Carlo, and realistic execution modeling. The honest number under realistic conditions is ~1.08% daily on OOS with 9.3% max DD at 3x leverage. Alpha comes from overnight momentum, not daytrading. Ready for paper trading phase.
+Built and fully validated a 10-ETF equity momentum strategy. 133 experiments, 11/11 regimes profitable, 100% walk-forward consistency. Realistic execution (1-bar delay + short borrow): ~1.08% daily, 9.3% DD, Sharpe 23.26. Paper trading live on VM, dashboard live on Vercel with Deep Validation tab. Dashboard sync script fixed to handle JSON files. Next milestone: 20 days of paper data to evaluate.
