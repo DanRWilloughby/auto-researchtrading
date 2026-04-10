@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "ed04d207cb1c",
+  "session_id": "b18806c8-7755-4b29-8287-8f4afbd331d2",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-10T17:49:17.908136Z",
+  "branch": "autotrader/30m-exp1",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/HANDOFF.md",
+    "paper/trader.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-6[1m]",
+  "turn_id": "815f737e4b5b",
+  "checkpoint_transcript_start": 457,
+  "transcript_lines_at_start": 457,
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 30732,
+    "cache_read_tokens": 8126958,
+    "output_tokens": 15465,
+    "api_call_count": 40
+  },
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-10T17:49:17.316628Z",
+    "agent_lines": 152,
+    "agent_removed": 49,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 152,
+    "total_lines_changed": 201,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

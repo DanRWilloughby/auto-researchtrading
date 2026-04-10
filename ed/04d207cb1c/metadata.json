@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "ed04d207cb1c",
+  "strategy": "manual-commit",
+  "branch": "autotrader/30m-exp1",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/HANDOFF.md",
+    "paper/trader.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ed/04d207cb1c/0/metadata.json",
+      "transcript": "/ed/04d207cb1c/0/full.jsonl",
+      "content_hash": "/ed/04d207cb1c/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 30732,
+    "cache_read_tokens": 8126958,
+    "output_tokens": 15465,
+    "api_call_count": 40
+  }
+}
