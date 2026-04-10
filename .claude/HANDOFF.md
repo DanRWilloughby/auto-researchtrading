@@ -1,35 +1,34 @@
-# Session Handoff - 2026-03-29
+# Session Handoff - 2026-04-10
 
 ## What We Did
-- Built a complete real estate deal intelligence platform for Veloce Capital + Forte Investment Fund, targeting Paterson NJ
-- Pulled data from 7 public sources: NJ MOD-IV parcels (24,348), HUD FMR, Zillow ZORI, Census ACS, sheriff sales (27), FEMA flood zones, Opportunity Zones
-- Built scoring pipeline that evaluates 20,551 investable properties on return potential, value-add spread, acquisition likelihood, risk, and tax advantages
-- Backtested thesis against 4,461 historical sales — key finding: properties transact at ~1.05x assessed off-market, stabilized MF exits at 2.5x assessed
-- Built comp engine (10 closest comparable sales), portfolio optimizer ($5M → optimal 20-property mix), direct mail targeting (200+ out-of-state distressed owners with mailing addresses), deal flow tracker, underwriting sheet generator
-- Built branded Next.js dashboard: Forte-branded overview landing page + filterable property table at /dashboard
-- Deployed pipeline to VM with daily cron (7am ET scoring, 7:30am snapshot, Sunday data refresh)
-- Also checked paper trading strategies: 30m-concentrated +2.15% (best), 1h-8coin +1.29%, 30m-8coin +0.85%, 30m-mtf-fusion +0.08%
+- Built a complete equity momentum strategy (`strategies/1h-equities/`) trading 10 non-correlated ETFs (SPY, QQQ, IWM, XLE, XLF, GLD, TLT, EEM, XBI, SOXX) on 1h bars
+- Created equity data pipeline (`engine/equity_data.py`) using yfinance — downloaded ~5,000 bars per ticker covering Jun 2023 to Apr 2026
+- Ran 133 logged experiments across 11 parameter dimensions via automated sweep runner (`engine/sweep.py`)
+- Optimized from baseline (score 774) to optimized (score 1,512 OOS) — only kept high-impact changes (HTF params, ATR stop, RSI exhaustion, MIN_VOTES)
+- Built deep validation suite (`engine/validate.py`): regime testing (11/11 profitable), walk-forward (11/11 windows), correlation analysis, drawdown stress test, Monte Carlo
+- Added realistic execution features to `engine/prepare.py`: 1-bar delayed execution, short borrow costs, EOD flatten
+- Validated under realistic execution: OOS still 4,932% return, 9.3% DD, Sharpe 23.26, ~1.08% daily
+- Wrote formal thesis report (`EQUITY-MOMENTUM-STRATEGY-REPORT.md`) ready for sharing
 
 ## Current State
-- All code committed and pushed to `autotrader/30m-exp1`
-- Auto-research running daily on VM (100.109.85.37)
-- Dashboard built locally at localhost:3099 — NOT yet deployed to Vercel
-- 4 paper trading strategies still running on VM
+- Strategy is optimized and validated across 3 splits + 11 regimes + 11 walk-forward windows
+- Realistic execution model confirmed: strategy survives 1-bar delay + short borrow
+- Key insight: alpha is overwhelmingly from overnight holds (overnight momentum strategy), not intraday
+- 133 experiments in `results.tsv`, report in `EQUITY-MOMENTUM-STRATEGY-REPORT.md`
+- Code committed and pushed to `autotrader/30m-exp1`
 
 ## Pending / Not Yet Tested
-- [ ] Dashboard not deployed to Vercel yet
-- [ ] Need "status" column (Listed / Sheriff Sale / Off-Market) — Dan flagged that 20,551 are ALL parcels, not just for-sale listings
-- [ ] Overlay 49 active Redfin listings as matched data
-- [ ] Sheriff sale scraper is static snapshot — needs automated weekly re-scrape
-- [ ] FEMA flood uses ZIP-level proxy, not parcel-level spatial join
-- [ ] Portfolio optimizer equity multiples (8.18x) seem high — selects most distressed; may need reality cap
+- [ ] Alpaca paper trading integration (adapt `paper/trader.py` for equities)
+- [ ] Real-time execution latency testing
+- [ ] Actual short borrow rate verification (assumed 5% flat, real rates vary by ticker)
+- [ ] Market impact at scale (strategy tested at $100K; may not work above $500K on XBI/EEM)
+- [ ] Overnight gap P&L attribution (measured aggregate impact but not per-event)
 
 ## Next Steps
-- [ ] Deploy dashboard to Vercel
-- [ ] Add Listed/Sheriff/Off-Market status to data + dashboard
-- [ ] Expand to Newark or Jersey City (same pipeline, change municipality filter)
-- [ ] Package deliverables for Veloce/Forte presentation
-- [ ] Consider productizing as SaaS for RE investors
+- [ ] Phase 1: Set up Alpaca paper trading account and wire up the paper trader
+- [ ] Phase 2: Run paper trading for 20+ trading days, compare to backtest expectations
+- [ ] Phase 3: If tracking error < 2% daily, deploy micro-live ($1K-5K)
+- [ ] Consider: whether to run this alongside or instead of the crypto 30m-concentrated strategy
 
 ## Quick Context
-Built a full automated deal-sourcing platform for two connected RE firms (Veloce = operator in Paterson, Forte = Reg A fund raising at $1K minimums). Scores every parcel daily, identifies distressed/absentee owners, generates mailing lists for direct outreach, produces investor-ready underwriting. Thesis validated by backtest. Key open item: 20,551 properties are ALL parcels not just for-sale — need to add status distinction in the UI.
+Built a 10-ETF equity momentum strategy that passes every validation test we threw at it — 133 experiments, 11 regimes, walk-forward, Monte Carlo, and realistic execution modeling. The honest number under realistic conditions is ~1.08% daily on OOS with 9.3% max DD at 3x leverage. Alpha comes from overnight momentum, not daytrading. Ready for paper trading phase.

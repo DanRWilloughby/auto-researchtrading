@@ -25,6 +25,7 @@ from dataclasses import dataclass, asdict
 import numpy as np
 import pandas as pd
 import requests
+import yfinance as yf
 
 # Add project root + engine to path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -62,6 +63,19 @@ SHADOW_SCENARIOS = {
     "realistic":   (3.0, TAKER_FEE),          # 3 bps slip, taker fee
     "pessimistic": (5.0, 0.0008),             # 5 bps slip, 8 bps fee (worst case)
 }
+
+# Equity-specific overrides
+EQUITY_SLIPPAGE_BPS = 0.5
+EQUITY_TAKER_FEE = 0.0
+EQUITY_SHORT_BORROW_RATE = 0.05  # 5% annualized
+EQUITY_SHADOW_SCENARIOS = {
+    "ideal":       (0.0, 0.0),               # zero friction
+    "paper":       (0.5, 0.0),               # 0.5 bps slip, $0 commissions
+    "realistic":   (1.0, 0.0),               # 1 bps slip
+    "pessimistic": (2.0, 0.0),               # 2 bps slip (worst case for ETFs)
+}
+
+EQUITY_SYMBOLS = ["SPY", "QQQ", "IWM", "XLE", "XLF", "GLD", "TLT", "EEM", "XBI", "SOXX"]
 
 # ---------------------------------------------------------------------------
 # Live data fetching
@@ -119,6 +133,59 @@ def fetch_current_funding(symbol: str) -> float:
     except Exception as e:
         logger.warning(f"Failed to fetch funding for {symbol}: {e}")
     return 0.0
+
+# ---------------------------------------------------------------------------
+# Equity data fetching (yfinance)
+# ---------------------------------------------------------------------------
+
+def fetch_recent_candles_equity(symbol: str, interval: str, count: int = 600) -> pd.DataFrame:
+    """Fetch recent candles from Yahoo Finance for equity tickers."""
+    # yfinance period: enough days to cover `count` market-hours bars
+    # 1h = ~6.5 bars/day, so 600 bars ≈ 92 trading days ≈ 130 calendar days
+    bars_per_day = 6.5 if interval == "1h" else 13  # 30m
+    calendar_days = int(count / bars_per_day * 1.5) + 5
+    period = f"{calendar_days}d"
+
+    ticker = yf.Ticker(symbol)
+    df = ticker.history(period=period, interval=interval)
+
+    if df.empty:
+        return pd.DataFrame()
+
+    df = df.reset_index()
+    ts_col = "Datetime" if "Datetime" in df.columns else "Date"
+    df["timestamp"] = df[ts_col].apply(
+        lambda x: int(x.tz_convert("UTC").timestamp() * 1000) if x.tzinfo else int(x.timestamp() * 1000)
+    )
+
+    result = pd.DataFrame({
+        "timestamp": df["timestamp"],
+        "open": df["Open"].astype(float),
+        "high": df["High"].astype(float),
+        "low": df["Low"].astype(float),
+        "close": df["Close"].astype(float),
+        "volume": df["Volume"].astype(float),
+        "funding_rate": 0.0,
+    })
+
+    result = result.dropna(subset=["open", "high", "low", "close"])
+    result = result.sort_values("timestamp").drop_duplicates("timestamp").reset_index(drop=True)
+    return result
+
+
+def is_market_hours() -> bool:
+    """Check if US equity markets are currently open (9:30-16:00 ET, weekdays)."""
+    from zoneinfo import ZoneInfo
+    now_et = datetime.now(ZoneInfo("US/Eastern"))
+    # Weekday check (0=Mon, 6=Sun)
+    if now_et.weekday() >= 5:
+        return False
+    hour, minute = now_et.hour, now_et.minute
+    # Market hours: 9:30 - 16:00 ET
+    if hour < 9 or (hour == 9 and minute < 30) or hour >= 16:
+        return False
+    return True
+
 
 # ---------------------------------------------------------------------------
 # State management
@@ -188,11 +255,22 @@ def load_strategy(path: str):
 # Core paper trading loop
 # ---------------------------------------------------------------------------
 
-def run_one_tick(strategy, state: dict, symbols: list, interval: str, strategy_dir: str = "") -> dict:
+def run_one_tick(strategy, state: dict, symbols: list, interval: str,
+                 strategy_dir: str = "", equity_mode: bool = False) -> dict:
     """Execute one paper trading tick: fetch data, run strategy, simulate trades."""
     interval_min = INTERVAL_CONFIG[interval]["minutes"]
     funding_divisor = 8.0 * (60.0 / interval_min)
     now_ms = int(time.time() * 1000)
+
+    # Equity mode: check market hours
+    if equity_mode and not is_market_hours():
+        logger.info("Market closed — skipping tick")
+        return state
+
+    # Select cost model
+    _slip_bps = EQUITY_SLIPPAGE_BPS if equity_mode else SLIPPAGE_BPS
+    _fee_rate = EQUITY_TAKER_FEE if equity_mode else TAKER_FEE
+    _shadow = EQUITY_SHADOW_SCENARIOS if equity_mode else SHADOW_SCENARIOS
 
     # Build portfolio state
     portfolio = PortfolioState(
@@ -207,7 +285,10 @@ def run_one_tick(strategy, state: dict, symbols: list, interval: str, strategy_d
     bar_data = {}
     for symbol in symbols:
         try:
-            candles = fetch_recent_candles(symbol, interval, count=LOOKBACK_BARS + 10)
+            if equity_mode:
+                candles = fetch_recent_candles_equity(symbol, interval, count=LOOKBACK_BARS + 10)
+            else:
+                candles = fetch_recent_candles(symbol, interval, count=LOOKBACK_BARS + 10)
         except Exception as e:
             logger.error(f"Failed to fetch {symbol} candles: {e}")
             continue
@@ -221,9 +302,14 @@ def run_one_tick(strategy, state: dict, symbols: list, interval: str, strategy_d
         if latest_ts <= last_seen:
             continue
 
-        # Add funding rate
-        funding = fetch_current_funding(symbol)
-        candles["funding_rate"] = funding
+        if not equity_mode:
+            # Add funding rate (crypto only)
+            funding = fetch_current_funding(symbol)
+            candles["funding_rate"] = funding
+        else:
+            funding = 0.0
+            if "funding_rate" not in candles.columns:
+                candles["funding_rate"] = 0.0
 
         latest = candles.iloc[-1]
         bar_data[symbol] = BarData(
@@ -255,12 +341,20 @@ def run_one_tick(strategy, state: dict, symbols: list, interval: str, strategy_d
 
     portfolio.equity = portfolio.cash + sum(abs(v) for v in portfolio.positions.values()) + unrealized_pnl
 
-    # Apply funding
-    for sym, pos_notional in list(portfolio.positions.items()):
-        if sym in bar_data:
-            fr = bar_data[sym].funding_rate
-            funding_payment = pos_notional * fr / funding_divisor
-            portfolio.cash -= funding_payment
+    if not equity_mode:
+        # Apply funding (crypto only)
+        for sym, pos_notional in list(portfolio.positions.items()):
+            if sym in bar_data:
+                fr = bar_data[sym].funding_rate
+                funding_payment = pos_notional * fr / funding_divisor
+                portfolio.cash -= funding_payment
+    else:
+        # Apply short borrow costs (equity only)
+        borrow_per_bar = EQUITY_SHORT_BORROW_RATE * interval_min / (252 * 6.5 * 60)
+        for sym, pos_notional in list(portfolio.positions.items()):
+            if pos_notional < 0:
+                borrow_cost = abs(pos_notional) * borrow_per_bar
+                portfolio.cash -= borrow_cost
 
     # Run strategy
     try:
@@ -290,9 +384,9 @@ def run_one_tick(strategy, state: dict, symbols: list, interval: str, strategy_d
             continue
 
         # Simulate execution with slippage + fees
-        slippage = current_price * SLIPPAGE_BPS / 10000
+        slippage = current_price * _slip_bps / 10000
         exec_price = current_price + slippage if delta > 0 else current_price - slippage
-        fee = abs(delta) * TAKER_FEE
+        fee = abs(delta) * _fee_rate
         portfolio.cash -= fee
 
         pnl = 0.0
@@ -334,16 +428,15 @@ def run_one_tick(strategy, state: dict, symbols: list, interval: str, strategy_d
 
         # Shadow execution: track cost deltas for each scenario
         if "shadow_cost_deltas" not in state:
-            state["shadow_cost_deltas"] = {name: 0.0 for name in SHADOW_SCENARIOS}
-        for scenario_name, (scen_slip_bps, scen_fee_rate) in SHADOW_SCENARIOS.items():
-            scen_slip = current_price * scen_slip_bps / 10000
+            state["shadow_cost_deltas"] = {name: 0.0 for name in _shadow}
+        for scenario_name, (scen_slip_bps, scen_fee_rate) in _shadow.items():
             scen_fee = abs(delta) * scen_fee_rate
-            # Base cost was: slippage effect on PnL + fee
-            base_slip_cost = abs(delta) * (SLIPPAGE_BPS / 10000)
+            base_slip_cost = abs(delta) * (_slip_bps / 10000)
             base_fee_cost = fee
             scen_slip_cost = abs(delta) * (scen_slip_bps / 10000)
-            # Delta = how much MORE this scenario costs vs the base paper execution
             cost_delta = (scen_slip_cost + scen_fee) - (base_slip_cost + base_fee_cost)
+            if scenario_name not in state["shadow_cost_deltas"]:
+                state["shadow_cost_deltas"][scenario_name] = 0.0
             state["shadow_cost_deltas"][scenario_name] += cost_delta
 
         trade = {
@@ -415,14 +508,18 @@ def run_one_tick(strategy, state: dict, symbols: list, interval: str, strategy_d
     return state
 
 
-def run_loop(strategy, symbols: list, interval: str, strategy_dir: str, once: bool = False):
+def run_loop(strategy, symbols: list, interval: str, strategy_dir: str,
+             once: bool = False, equity_mode: bool = False):
     """Main paper trading loop."""
     state = load_state(strategy_dir, interval)
     interval_sec = INTERVAL_CONFIG[interval]["minutes"] * 60
 
-    logger.info(f"Paper trader starting: {interval} on {symbols}")
+    mode_str = "EQUITY" if equity_mode else "CRYPTO"
+    logger.info(f"Paper trader starting: {interval} on {symbols} [{mode_str}]")
     logger.info(f"State: {state_path(strategy_dir)}")
     logger.info(f"Capital: ${state['cash']:,.2f} | Trades so far: {len(state['trade_log'])}")
+    if equity_mode:
+        logger.info(f"Equity mode: {EQUITY_SLIPPAGE_BPS} bps slip, $0 fees, {EQUITY_SHORT_BORROW_RATE*100:.0f}% borrow")
 
     running = True
     def shutdown(signum, frame):
@@ -435,7 +532,8 @@ def run_loop(strategy, symbols: list, interval: str, strategy_dir: str, once: bo
 
     while running:
         try:
-            state = run_one_tick(strategy, state, symbols, interval, strategy_dir)
+            state = run_one_tick(strategy, state, symbols, interval, strategy_dir,
+                                equity_mode=equity_mode)
             save_state(state, strategy_dir)
         except Exception as e:
             logger.error(f"Tick failed: {type(e).__name__}: {e}")
@@ -516,9 +614,14 @@ if __name__ == "__main__":
                         help="Show current paper trading status and exit")
     parser.add_argument("--reset", action="store_true",
                         help="Reset paper trading state (start fresh)")
+    parser.add_argument("--equity", action="store_true",
+                        help="Equity mode: use yfinance data, $0 fees, market hours only")
     args = parser.parse_args()
 
-    symbols = ALL_SYMBOLS if args.all_symbols else (args.symbols or DEFAULT_SYMBOLS)
+    if args.equity:
+        symbols = args.symbols or EQUITY_SYMBOLS
+    else:
+        symbols = ALL_SYMBOLS if args.all_symbols else (args.symbols or DEFAULT_SYMBOLS)
 
     # Resolve strategy path — all state is scoped to the strategy directory
     if args.strategy:
@@ -542,4 +645,5 @@ if __name__ == "__main__":
         sys.exit(0)
 
     strategy = load_strategy(strategy_path)
-    run_loop(strategy, symbols, args.interval, strategy_dir, once=args.once)
+    run_loop(strategy, symbols, args.interval, strategy_dir,
+             once=args.once, equity_mode=args.equity)
