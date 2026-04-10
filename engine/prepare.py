@@ -653,14 +653,31 @@ def load_data(split: str = "val", symbols=None, interval="1h",
 # Backtesting engine
 # ---------------------------------------------------------------------------
 
-def run_backtest(strategy, data: dict, interval="1h") -> BacktestResult:
+def run_backtest(strategy, data: dict, interval="1h",
+                 slippage_bps=None, taker_fee=None,
+                 execute_delay=0, short_borrow_rate=0.0,
+                 eod_flatten=False) -> BacktestResult:
     """
     Run strategy over data. Returns BacktestResult with full metrics.
     Enforces TIME_BUDGET. Adjusts funding and annualization for interval.
+
+    Optional overrides for equity backtests:
+        slippage_bps: override SLIPPAGE_BPS (default 1.0, equities ~0.5)
+        taker_fee: override TAKER_FEE (default 0.0005, equities ~0)
+        execute_delay: bars to delay signal execution (0=same bar close,
+                       1=next bar open — realistic for live trading)
+        short_borrow_rate: annualized short borrow rate (e.g. 0.05 = 5%)
+        eod_flatten: if True, close all positions at end of each trading day
     """
     t_start = time.time()
     bars_per_year = INTERVAL_CONFIG[interval]["bars_per_year"]
     interval_min = INTERVAL_CONFIG[interval]["minutes"]
+    _slippage_bps = slippage_bps if slippage_bps is not None else SLIPPAGE_BPS
+    _taker_fee = taker_fee if taker_fee is not None else TAKER_FEE
+
+    # Per-bar short borrow cost fraction: annual_rate * (bar_minutes / minutes_per_year)
+    # Only count market hours for equities: ~252 days * 6.5 hours * 60 min = 98,280 min/year
+    _borrow_per_bar = short_borrow_rate * interval_min / (252 * 6.5 * 60) if short_borrow_rate > 0 else 0.0
 
     # Funding rate adjustment: HL funding is 8-hour rate, paid hourly (1/8 per hour).
     # For sub-hourly bars, scale proportionally: (interval_minutes / 60) / 8
@@ -698,7 +715,10 @@ def run_backtest(strategy, data: dict, interval="1h") -> BacktestResult:
     # History buffers
     history_buffers = {symbol: [] for symbol in data}
 
-    for ts in timestamps:
+    # Delayed execution: queue signals from previous bar(s)
+    pending_signals = []  # list of (Signal, bars_remaining)
+
+    for bar_idx, ts in enumerate(timestamps):
         elapsed = time.time() - t_start
         if elapsed > TIME_BUDGET:
             break
@@ -763,6 +783,25 @@ def run_backtest(strategy, data: dict, interval="1h") -> BacktestResult:
                 funding_payment = pos_notional * fr / funding_divisor
                 portfolio.cash -= funding_payment
 
+        # Apply short borrow costs
+        if _borrow_per_bar > 0:
+            for sym, pos_notional in list(portfolio.positions.items()):
+                if pos_notional < 0:  # short position
+                    borrow_cost = abs(pos_notional) * _borrow_per_bar
+                    portfolio.cash -= borrow_cost
+
+        # EOD flatten: detect last bar of trading day and close all positions
+        # For 1h equity bars, check if next timestamp is a different calendar day
+        eod_close_signals = []
+        if eod_flatten and portfolio.positions and bar_idx < len(timestamps) - 1:
+            current_dt = pd.Timestamp(ts, unit="ms", tz="UTC")
+            next_dt = pd.Timestamp(timestamps[bar_idx + 1], unit="ms", tz="UTC")
+            if current_dt.date() != next_dt.date():
+                # End of trading day — flatten all positions
+                for sym, pos in list(portfolio.positions.items()):
+                    if pos != 0 and sym in bar_data:
+                        eod_close_signals.append(Signal(symbol=sym, target_position=0.0))
+
         # Get signals from strategy
         try:
             signals = strategy.on_bar(bar_data, portfolio)
@@ -770,12 +809,47 @@ def run_backtest(strategy, data: dict, interval="1h") -> BacktestResult:
             logger.warning(f"strategy.on_bar() raised {type(e).__name__}: {e} at ts={ts}")
             signals = []
 
+        # Merge EOD flatten signals (these execute immediately, no delay)
+        if eod_close_signals:
+            # EOD signals override strategy signals for the same symbol
+            eod_syms = {s.symbol for s in eod_close_signals}
+            signals = [s for s in (signals or []) if s.symbol not in eod_syms]
+            signals = eod_close_signals + signals
+
+        # Handle delayed execution: queue new signals, collect ready signals
+        if execute_delay > 0:
+            # Queue new strategy signals (not EOD signals, those execute now)
+            for sig in (signals or []):
+                if sig.symbol not in {s.symbol for s in eod_close_signals}:
+                    pending_signals.append((sig, execute_delay))
+
+            # Decrement and collect ready signals
+            ready_signals = []
+            still_pending = []
+            for sig, remaining in pending_signals:
+                if remaining <= 1:
+                    ready_signals.append(sig)
+                else:
+                    still_pending.append((sig, remaining - 1))
+            pending_signals = still_pending
+
+            # Add EOD signals (immediate) to ready signals
+            ready_signals = list(eod_close_signals) + ready_signals
+            signals_to_execute = ready_signals
+        else:
+            signals_to_execute = signals or []
+
         # Execute signals
-        for sig in (signals or []):
+        for sig in signals_to_execute:
             if sig.symbol not in bar_data:
                 continue
 
-            current_price = bar_data[sig.symbol].close
+            # Delayed execution fills at bar OPEN; immediate fills at bar CLOSE
+            is_eod_sig = sig.symbol in {s.symbol for s in eod_close_signals} if eod_close_signals else False
+            if execute_delay > 0 and not is_eod_sig:
+                current_price = bar_data[sig.symbol].open
+            else:
+                current_price = bar_data[sig.symbol].close
             current_pos = portfolio.positions.get(sig.symbol, 0.0)
             delta = sig.target_position - current_pos
 
@@ -788,8 +862,8 @@ def run_backtest(strategy, data: dict, interval="1h") -> BacktestResult:
             if total_exposure > portfolio.equity * MAX_LEVERAGE:
                 continue
 
-            slippage = current_price * SLIPPAGE_BPS / 10000
-            fee_rate = TAKER_FEE
+            slippage = current_price * _slippage_bps / 10000
+            fee_rate = _taker_fee
             if delta > 0:
                 exec_price = current_price + slippage
             else:

@@ -125,6 +125,16 @@ if __name__ == "__main__":
                         help="Scoring function: sharpe (default) or daily-return (max daily return with DD constraint)")
     parser.add_argument("--max-dd", type=float, default=10.0,
                         help="Max drawdown %% threshold for daily-return scoring (default: 10)")
+    parser.add_argument("--slippage-bps", type=float, default=None,
+                        help="Override slippage in bps (default: 1.0, equities: 0.5)")
+    parser.add_argument("--taker-fee", type=float, default=None,
+                        help="Override taker fee rate (default: 0.0005, equities: 0)")
+    parser.add_argument("--execute-delay", type=int, default=0,
+                        help="Bars to delay execution (0=same bar, 1=next bar open)")
+    parser.add_argument("--short-borrow-rate", type=float, default=0.0,
+                        help="Annualized short borrow rate (e.g. 0.05 = 5%%)")
+    parser.add_argument("--eod-flatten", action="store_true",
+                        help="Close all positions at end of each trading day")
     args = parser.parse_args()
 
     # Resolve strategy path
@@ -156,7 +166,11 @@ if __name__ == "__main__":
             print(f"=== {split_name.upper()} SPLIT ({args.interval}) ===")
         print(f"Loaded {total_bars} bars across {list(data.keys())}")
 
-        result = run_backtest(strategy, data, interval=args.interval)
+        result = run_backtest(strategy, data, interval=args.interval,
+                              slippage_bps=args.slippage_bps, taker_fee=args.taker_fee,
+                              execute_delay=args.execute_delay,
+                              short_borrow_rate=args.short_borrow_rate,
+                              eod_flatten=args.eod_flatten)
         if args.score == "daily-return":
             score = compute_score_daily_return(result, max_dd_pct=args.max_dd)
         else:
