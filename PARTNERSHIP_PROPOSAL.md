@@ -16,6 +16,8 @@
 
 This proposal outlines a partnership between Drew Schmale and Dan Willoughby to deploy an algorithmic cryptocurrency trading system. Drew contributes Bitcoin as collateral for a margin loan that funds the trading account. Dan contributes a proprietary trading algorithm and operational management. The structure prioritizes capital protection for Drew while creating meaningful upside for both partners.
 
+**Current status (as of 2026-04-11 19:16 UTC):** Dan is running the full system live on Coinbase perpetual futures at a personal $10,000 capital level as final validation before partnership capital is deployed. Three parallel instances of the strategy run side-by-side (Paper HL, Live CB, Paper CB early-timing) for A/B tracking. All safety layers (circuit breakers, flash crash guard, position limits, Telegram alerts, watchdog) are built, tested, and active. See Section 7 for the complete validation record.
+
 ### Key Terms at a Glance
 
 | Term | Detail |
@@ -479,22 +481,130 @@ The flash crash guard's purpose is to catch **scenarios the strategy wasn't desi
 
 At 8% per-position and -8% portfolio, the guard operates as a downstream backstop to the strategy's own risk model, not as a competing stop-loss. This preserves the strategy's sharpe-optimized behavior while still catching true catastrophes.
 
-### 7.11 What's Still Pending
+### 7.11 Flash Crash Guard Live Validation (2026-04-11)
 
-Before the partnership goes live, the following still needs to be built and tested:
+The flash crash guard is the most safety-critical component — it's the backstop that catches scenarios the strategy's own stops can't handle. Unit tests alone weren't enough; we needed to prove the emergency exit path works end-to-end on a real open position.
 
-- [ ] **RiskManager module** — circuit breakers, position limits, data validation
-- [ ] **FlashCrashGuard** — inter-bar WebSocket price monitoring
-- [ ] **Kill switch mechanisms** — file-based, Telegram command, automatic triggers
-- [ ] **Telegram alert integration** — trade notifications, daily summary, emergency alerts
-- [ ] **Watchdog process** — auto-restart if trader goes silent
-- [ ] **VM deployment** — dedicated trader user, API key in `/etc/secrets/`, firewall
-- [ ] **48-hour validation run** — live on Coinbase at $5K alongside paper tracking
-- [ ] **Dashboard live tab** — real equity vs paper equity comparison
+**The challenge:** BTC was unusually quiet during the test window (max move 0.016% over 60 seconds), so a market-driven test couldn't trigger the guard at any realistic threshold.
 
-**Estimated build time:** 3-4 hours total across all remaining phases.
+**The solution:** We placed a real 1-contract BTC position, then **injected a fake entry price 10% higher than the real entry** into the position snapshot. This made the guard perceive a "10% drop" from entry even though the real market price was unchanged. The guard then:
 
-### 7.12 What This Validation Proves for the Partnership
+1. ✅ Detected the simulated 9.09% move within 2 seconds
+2. ✅ Called the `emergency_exit()` callback
+3. ✅ Placed a real SELL order via the CoinbaseClient
+4. ✅ Confirmed position returned to flat
+5. ✅ Dispatched FLASH_CRASH Telegram alert
+
+Result: **end-to-end emergency exit path validated**. Cost: ~$1.50 (spread + fees on the 1-contract round-trip). The real underlying position was safe throughout since the simulated "crash" was in the guard's memory only — the actual close executed at real market price with zero mark-to-market loss.
+
+### 7.12 Fee Tracking Bug Discovery & Fix (2026-04-11)
+
+**The bug:** After running 5 round-trip tests, the Coinbase API's `daily_realized_pnl` field reported only -$0.55 in losses. But the actual account value had dropped by ~$5.73. The missing ~$5 was fees that Coinbase tracks **separately** from the `daily_realized_pnl` field.
+
+**Root cause:** Coinbase's `daily_realized_pnl` reports **price P&L only** — it does NOT include trading fees. The RiskManager's daily loss circuit breaker was reading this field, which meant fees could drain an account without triggering the safety check.
+
+**Real fee structure discovered:**
+- Coinbase fee: 0.03% (3 bps) — promotional rate
+- Reg/exchange fee: **FIXED $0.15 per contract** (CFTC + NFA regulatory fees, not a percentage)
+- Effective total at current prices: **~5 bps per side** (not the 3 bps originally assumed)
+- Round-trip cost: **~10 bps** per complete open+close cycle
+
+This is comparable to Hyperliquid's base tier (4.5 bps taker per side = 9 bps round-trip). Earlier claims of "Coinbase is 40% cheaper" were wrong — they ignored the fixed regulatory fee. **Net: Coinbase and Hyperliquid are essentially the same on fees.** The paper trader's existing `TAKER_FEE = 0.0005` (5 bps) model was already accurate.
+
+**The fix:** Added two new methods to `CoinbaseClient`:
+- `get_daily_total_fees()` — sums fees from all filled orders for the current UTC day
+- `get_daily_total_pnl()` — returns `daily_realized_pnl - total_fees` for accurate daily P&L
+
+Updated the live trader to use `get_daily_total_pnl()` for the circuit breaker's daily loss check. State file now persists `daily_price_pnl`, `daily_fees`, and `daily_total_pnl` separately for auditing.
+
+### 7.13 Circuit Breaker Cross-Tick Persistence Bug & Fix (2026-04-11)
+
+**Critical bug found during final pre-flight audit.** The cron-based architecture means each trader tick is a fresh Python process. The CircuitBreaker was initializing `high_water = current_equity` on every fresh start, which meant the **10% drawdown kill switch — our primary safety net — could never fire across cron fires**.
+
+**Broken behavior example:**
+```
+Tick 1 (fresh process): equity=$12,000, hw=$12,000 (set to current)
+    Process exits
+Tick 2 (fresh process): equity=$11,500, hw=$11,500 (RESET to current!)
+    Drawdown check: (11500 - 11500) / 11500 = 0% → no trigger
+    Reality: 4.17% drawdown from tick 1's peak, unnoticed
+```
+
+**The 10% max DD kill switch would have been effectively disabled in production.**
+
+**The fix:** Load state file BEFORE building the risk manager, then:
+1. Restore `circuit_breaker.high_water` from the persisted `peak_equity` field
+2. Populate `circuit_breaker.equity_history` from the persisted `equity_curve` (last 24h)
+3. This enables both the drawdown-from-high-water AND 24h rolling DD checks to work across cron fires
+
+Verified on VM: `Risk state restored: high_water=$10,000.00, 24h window=3 points`.
+
+This was **the most important bug caught** during the pre-flight audit. Without this fix, the primary catastrophic safety net would have been silently broken in production.
+
+### 7.14 Watchdog Process (2026-04-11)
+
+Built a separate cron-based watchdog (`live/watchdog.py`) that runs every 5 minutes and checks the health of each live trading instance by verifying state file freshness. Does NOT restart anything — it only alerts. Four severity levels:
+
+| Level | Stale Threshold | Response |
+|---|---|---|
+| OK | <35 minutes | No action |
+| Warn | 35-65 min | Telegram WARNING alert — missed 1 cron fire |
+| Error | 65-120 min | Telegram WARNING alert — missed 2+ fires, investigate |
+| Critical | >120 min | Telegram CIRCUIT_BREAKER alert — serious outage |
+
+Cron entry: `*/5 * * * * /home/openclaw/auto-researchtrading/paper/run-cron-watchdog.sh`
+
+Rationale for alerts-only (no auto-restart): cron issues usually need investigation (clock drift, VM OOM, API outage, auth failure). Blindly retrying often makes things worse. Human-in-the-loop for recovery is safer at this scale.
+
+### 7.15 VM Deployment & 3-Way A/B Setup (2026-04-11)
+
+The strategy now runs as **three parallel instances on the same VM**, same Python environment, same strategy file, at different timings and venues:
+
+```
+15,45 * * * *  run-cron-30m-concentrated.sh              # Paper HL (UNTOUCHED)
+14,44 * * * *  run-cron-30m-concentrated-live.sh         # Live CB (REAL ORDERS)
+2,32  * * * *  run-cron-30m-concentrated-paper-cb.sh     # Paper CB (simulated)
+*/5   * * * *  run-cron-watchdog.sh                      # Health monitor
+```
+
+| Instance | Venue | Timing | Execution | Purpose |
+|---|---|---|---|---|
+| 30m-concentrated (existing) | Hyperliquid | :15/:45 | Simulated | 15-day baseline (+48.7%) |
+| 30m-concentrated-cb-live | Coinbase | :14/:44 | 🔴 **LIVE** | Actual partnership capital |
+| 30m-concentrated-cb-paper | Coinbase | :02/:32 | Simulated | Earlier-timing A/B variant |
+
+**Deployment approach:** All three traders share the same Python module (`live/trader.py`) with an `--instance` flag that separates state files and log files. Paper HL trader (`paper/trader.py`) is a completely separate module and was NOT modified during this work.
+
+**Dashboard integration:** All three instances appear in the Vercel dashboard dropdown with clean labels ("30m Concentrated (HL Paper)", "30m Concentrated (CB Live @ :14)", "30m Concentrated (CB Paper @ :02)"). State files sync hourly from VM to dashboard via the existing `cron-sync.sh` mechanism. Dashboard shows $10K baseline for the two new instances (down from the default $100K that caused a -90% display bug).
+
+### 7.16 Go-Live Decision (2026-04-11 19:16 UTC)
+
+After completing all validation, the live trader was flipped to production mode by removing both dry-run gates from the cron wrapper:
+
+1. `export LIVE_TRADER_DRY_RUN=yes` (env var gate) — removed
+2. `--dry-run` (CLI flag gate) — removed
+
+**First live cron fire:** 19:44 UTC.
+
+**Total cost of all pre-flight validation:** $6.76 (5 round-trip BTC tests at ~5 bps per side).
+
+**Confidence level:** High. Every component of the execution path has been exercised with real orders. Two critical bugs were caught and fixed during the audit (fee tracking, circuit breaker persistence) — either could have caused issues in production without this validation work.
+
+### 7.17 What's Still Pending
+
+- [x] ~~RiskManager module~~ ✅ **Built and calibrated**
+- [x] ~~FlashCrashGuard~~ ✅ **Built and validated live**
+- [x] ~~Kill switch mechanisms~~ ✅ **File-based + Telegram command + automatic**
+- [x] ~~Telegram alert integration~~ ✅ **Working for all event types**
+- [x] ~~Watchdog process~~ ✅ **Cron-based, 4-level escalation**
+- [x] ~~VM deployment~~ ✅ **3 instances running on VM via cron**
+- [x] ~~Dashboard live tab~~ ✅ **3 instances visible in dropdown**
+- [x] ~~Go live~~ ✅ **Live as of 2026-04-11 19:16 UTC**
+- [ ] **24-48h live tracking comparison** — now accumulating, compare equity curves across 3 instances
+- [ ] **Scaling decision** — after 1 week of clean live data, evaluate whether to scale $10K → $25K → $100K
+- [ ] **Partnership capital deployment** — only after 30+ days of clean live operation at $10K
+
+### 7.18 What This Validation Proves for the Partnership
 
 For Drew's confidence: the technical foundation is not hypothetical. Every component between "the strategy decides to trade" and "money changes hands on Coinbase" has been exercised with real orders, real money, and real data. The total cost to validate this was **less than the cost of a cup of coffee**, and it caught one real bug (the `pending_transfers` misinterpretation) before it could affect partnership capital.
 
