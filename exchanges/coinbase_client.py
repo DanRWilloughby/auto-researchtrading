@@ -409,9 +409,9 @@ class CoinbaseClient(ExchangeClient):
         positions = self.get_positions()
         current_contracts = positions.get(symbol).contracts if symbol in positions else 0
 
-        # Target contracts (rounded down for conservative entry)
+        # Target contracts (rounded to nearest for best leverage match at small capital)
         target_contracts = self.notional_to_contracts(
-            symbol, target_notional_usd, current_price, round_mode="down"
+            symbol, target_notional_usd, current_price, round_mode="nearest"
         )
 
         delta_contracts = int(target_contracts - current_contracts)
