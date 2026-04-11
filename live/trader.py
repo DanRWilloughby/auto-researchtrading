@@ -53,10 +53,16 @@ logger = logging.getLogger("live-trader")
 STARTING_CAPITAL = 10_000  # Test capital — live trader uses actual account balance
 
 
-def derive_live_state_path(strategy_path: str) -> Path:
-    """Compute where live state lives for a given strategy."""
+def derive_live_state_path(strategy_path: str, instance: str = "live") -> Path:
+    """
+    Compute where state lives for a given strategy + instance.
+
+    Each instance is a separately-tracked trader with its own state file,
+    equity curve, and trade log. Use different instances to run the same
+    strategy at different timings on the same VM for A/B comparison.
+    """
     strategy_name = Path(strategy_path).parent.name
-    return PROJECT_ROOT / "live" / "state" / f"{strategy_name}_live_state.json"
+    return PROJECT_ROOT / "live" / "state" / f"{strategy_name}_{instance}_state.json"
 
 
 def load_state(state_file: Path, interval: str, initial_equity: float) -> dict:
@@ -364,6 +370,9 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="Log orders but don't submit them to Coinbase")
     parser.add_argument("--status", action="store_true", help="Print status and exit")
+    parser.add_argument("--instance", default="live",
+                        help="Instance label (separates state file from other concurrent instances). "
+                             "Default 'live'. Use 'paper-cb-early' for an earlier-timing dry-run variant.")
     args = parser.parse_args()
 
     # Resolve strategy path (relative to project root if not absolute)
@@ -378,7 +387,7 @@ def main():
     client = CoinbaseClient(dry_run_default=dry_run)
 
     if args.status:
-        state_file = derive_live_state_path(strategy_path)
+        state_file = derive_live_state_path(strategy_path, args.instance)
         show_status(state_file, client)
         return
 
@@ -407,16 +416,18 @@ def main():
     # Load strategy
     strategy = load_strategy(strategy_path)
     logger.info(f"Loaded strategy: {type(strategy).__name__}")
+    logger.info(f"Instance: {args.instance}")
     logger.info(f"Mode: {'DRY RUN' if dry_run else 'LIVE'}")
     logger.info(f"Symbols: {args.symbols}")
     logger.info(f"Interval: {args.interval}")
     logger.info(f"Initial equity: ${initial_equity:,.2f}")
 
-    # Alert startup
+    # Alert startup (include instance label so we can tell them apart in Telegram)
     risk_mgr.alerts.dispatch(Alert(
         AlertType.STARTUP,
-        f"Live trader started ({'DRY RUN' if dry_run else 'LIVE'})",
+        f"[{args.instance}] started ({'DRY RUN' if dry_run else 'LIVE'})",
         data={
+            "instance": args.instance,
             "strategy": Path(strategy_path).parent.name,
             "equity": f"${initial_equity:,.2f}",
             "symbols": ",".join(args.symbols),
@@ -424,7 +435,7 @@ def main():
     ))
 
     # Load state
-    state_file = derive_live_state_path(strategy_path)
+    state_file = derive_live_state_path(strategy_path, args.instance)
     state = load_state(state_file, args.interval, initial_equity)
 
     if args.once:
