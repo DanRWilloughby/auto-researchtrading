@@ -408,7 +408,78 @@ For context, this validated:
 - Data alignment between Coinbase and Hyperliquid
 - Contract sizing and quantization math
 
-### 7.10 What's Still Pending
+### 7.10 Risk Guard Threshold Calibration (2026-04-11)
+
+The safety layer thresholds were calibrated against 15 days of paper trading data (464 position cycles, +48.78% return) to ensure the guards fire only on genuine catastrophes — not on the strategy's normal volatility.
+
+**Key question asked:** "These flash crash thresholds are the only ones I'm unsure about. Can you check how many times they would have been triggered historically and what the delta return would have been? We don't want to over-complicate the risk protections and kill the strategy."
+
+**Methodology:**
+1. Loaded the full trade log from the paper state file (1,048 trade events)
+2. Reconstructed 464 position cycles (open → close round-trips)
+3. Fetched historical 30-minute bars for BTC/ETH/SOL from Hyperliquid
+4. Simulated each threshold against bar-level OHLC data to measure:
+   - How many trades the guard would have killed
+   - Whether those trades were profitable or losing at actual exit
+   - Net P&L impact of the guard firing vs. letting the strategy run
+
+**Per-position flash crash threshold scan:**
+
+| Threshold | Triggers | Rate | Killed Profitable | Killed Losses | Delta P&L |
+|---|---|---|---|---|---|
+| 2.0% | 20 | 4.3% | 20 | 0 | -$40,209 |
+| 3.0% (initial) | 6 | 1.3% | 6 | 0 | -$18,148 |
+| 4.0% | 1 | 0.2% | 1 | 0 | -$4,660 |
+| **5.0%** | **0** | **0%** | **0** | **0** | **$0** |
+| **8.0% (final)** | **0** | **0%** | **0** | **0** | **$0** |
+| 10.0% | 0 | 0% | 0 | 0 | $0 |
+
+**Portfolio flash crash threshold scan:**
+
+| Threshold | Triggers |
+|---|---|
+| -1.0% | 13 |
+| -2.0% (initial) | 3 |
+| -3.0% | 0 |
+| **-8.0% (final)** | **0** |
+
+**Circuit breaker thresholds (unchanged):**
+
+| Guard | Threshold | Triggers on Paper Data |
+|---|---|---|
+| Max drawdown from high-water | 10% | 0 |
+| Max 24h rolling drawdown | 5% | 0 |
+| Daily realized loss cap | $500 | 0 |
+
+All circuit breakers are working as designed — they never fire during normal operation and are reserved as catastrophic backstops.
+
+**Correlation guard:** Raised from -1.5% to -2.0% per-position threshold. At -1.5% it fired once during normal volatility (marginal trigger). At -2.0% it does not fire on paper data.
+
+**Final calibrated thresholds:**
+
+| Parameter | Initial | **Final** | Rationale |
+|---|---|---|---|
+| Flash crash per-position | 3% | **8%** | Downstream of strategy's own ATR stops |
+| Flash crash portfolio | -2% | **-8%** | 2% cushion before 10% kill switch |
+| Correlation guard | -1.5% | **-2.0%** | Eliminates marginal historical trigger |
+| Max DD kill switch | 10% | 10% | Working as designed (never triggered) |
+| Max 24h DD | 5% | 5% | Working as designed (never triggered) |
+| Daily loss cap | $500 | $500 | Working as designed (never triggered) |
+
+**Why the flash crash thresholds are loose by design:**
+
+The strategy uses 8x ATR-based trailing stops. In normal volatility regimes, the strategy's own stops fire at approximately 3-6% depending on the coin and volatility state. Setting a flash crash guard *inside* that envelope creates conflict — the guard fires before the strategy's smarter, volatility-adjusted stops get a chance.
+
+The flash crash guard's purpose is to catch **scenarios the strategy wasn't designed for** — things the strategy's own risk model can't handle:
+
+1. **API outage** — strategy can't execute its stops even though it wants to
+2. **Black swan gaps** — price jumps through multiple stop levels before they evaluate
+3. **Exchange data glitches** — corrupted prices that confuse the strategy
+4. **Unprecedented volatility regimes** — moves larger than anything in backtest data
+
+At 8% per-position and -8% portfolio, the guard operates as a downstream backstop to the strategy's own risk model, not as a competing stop-loss. This preserves the strategy's sharpe-optimized behavior while still catching true catastrophes.
+
+### 7.11 What's Still Pending
 
 Before the partnership goes live, the following still needs to be built and tested:
 
@@ -423,7 +494,7 @@ Before the partnership goes live, the following still needs to be built and test
 
 **Estimated build time:** 3-4 hours total across all remaining phases.
 
-### 7.11 What This Validation Proves for the Partnership
+### 7.12 What This Validation Proves for the Partnership
 
 For Drew's confidence: the technical foundation is not hypothetical. Every component between "the strategy decides to trade" and "money changes hands on Coinbase" has been exercised with real orders, real money, and real data. The total cost to validate this was **less than the cost of a cup of coffee**, and it caught one real bug (the `pending_transfers` misinterpretation) before it could affect partnership capital.
 
@@ -586,17 +657,17 @@ The trading system includes a multi-layered safety architecture. These mechanism
 │  CircuitBreaker                                              │
 │   ├─ 10% drawdown from high-water mark → flatten + halt     │
 │   ├─ 5% drawdown in rolling 24h → flatten + halt            │
-│   ├─ $5,000 daily loss cap → flatten + halt                  │
+│   ├─ $500 daily loss cap → flatten + halt                    │
 │   └─ Manual kill switch (file flag or Telegram) → flatten    │
 │                                                              │
 │  FlashCrashGuard (runs between 30-min bars)                  │
-│   ├─ WebSocket price feed checks every 5 seconds             │
-│   ├─ Per-position: |move| > 3% from entry → emergency exit  │
-│   ├─ Portfolio-wide: unrealized PnL < -2% → emergency exit  │
+│   ├─ Price feed checks every 5 seconds                       │
+│   ├─ Per-position: |move| > 8% from entry → emergency exit  │
+│   ├─ Portfolio-wide: unrealized PnL < -8% → emergency exit  │
 │   └─ Eliminates 29-minute blindness between bar evaluations  │
 │                                                              │
 │  CorrelationGuard                                            │
-│   ├─ If all 3 coins losing simultaneously > 1.5%            │
+│   ├─ If all 3 coins losing simultaneously > 2.0%            │
 │   └─ Reduce exposure by 50% (not full flatten)              │
 │                                                              │
 │  PositionLimits                                              │
@@ -629,13 +700,36 @@ The trading system includes a multi-layered safety architecture. These mechanism
 
 ### The Flash Crash Problem
 
-The algorithm evaluates signals every 30 minutes. Without inter-bar monitoring, a 15% crash at minute 2 of a bar means 28 minutes of exposure before the stop-loss even evaluates. The FlashCrashGuard solves this:
+The algorithm evaluates signals every 30 minutes. Without inter-bar monitoring, a flash crash at minute 2 of a bar means 28 minutes of exposure before the strategy's own stops even evaluate. The FlashCrashGuard solves this by polling prices every 5 seconds between bars.
 
-| Scenario | Without Guard | With FlashCrashGuard |
+**Threshold calibration (backtested against 15 days of paper trading):**
+
+The flash crash guard thresholds were deliberately calibrated to fire ONLY on true catastrophes — not on the strategy's normal volatility. The strategy's own ATR-based stop-loss (8x ATR, ~3-6% depending on volatility regime) handles routine drawdowns. The flash crash guard is a downstream backstop for scenarios the strategy wasn't designed for:
+
+- API outage preventing the strategy's own stops from executing
+- Black swan gaps that jump through multiple stop levels
+- Exchange price feed glitches
+- Unprecedented volatility regimes
+
+**Why 8% and -8% specifically (not tighter):**
+
+A backtest against 464 actual position cycles showed that a tighter 3% per-position threshold would have killed **6 profitable trades totaling $18,148 (23% of strategy P&L)** with zero losses prevented. The strategy naturally rides through 3-4% adverse moves and recovers via its own signal generation. Setting the flash crash guard inside the strategy's natural tolerance creates conflict, not protection.
+
+| Metric | Max Observed (Paper Data) | Guard Threshold | Headroom |
+|---|---|---|---|
+| Adverse move per position | 4.04% | 8.0% | 3.96% |
+| Portfolio drawdown from high-water | 2.49% | -8.0% | 5.51% |
+
+At these thresholds, the guard fires ONLY on events that exceed the strategy's normal operating envelope by a meaningful margin — the definition of a catastrophe.
+
+**Scenario comparison:**
+
+| Scenario | Without Guard | With FlashCrashGuard (8%/-8%) |
 |---|---|---|
-| SOL drops 12% in 5 min | Stop evaluates 25 min later, loss ~12% | Emergency exit at -3%, loss capped |
-| BTC flash wick -8%, recovers | May trigger stop at wrong price on bar close | Real-time evaluation, exits on breach |
-| Correlated crash (all 3 coins) | Each stop fires independently | Portfolio-level guard fires first, cuts faster |
+| Normal 3% position drawdown | Strategy stops fire, trade recovers | Guard does NOT fire, strategy handles it |
+| 12% SOL crash from API outage | Strategy can't execute stops, 28min blindspot | Emergency exit at -8%, loss capped early |
+| BTC flash wick -5%, recovers in minutes | Strategy ATR stops may fire, may not | Guard does NOT fire, strategy handles it |
+| Correlated crash: all 3 coins crash 10%+ | Each stop may fail in same incident | Portfolio guard fires at -8%, flattens all |
 
 ### Kill Switch Mechanisms
 
