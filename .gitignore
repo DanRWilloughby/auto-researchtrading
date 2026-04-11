@@ -42,3 +42,4 @@ docker-compose.override.yml
 # Database files
 *.sqlite
 *.db
+secrets/
