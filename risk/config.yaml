@@ -1,0 +1,69 @@
+# Risk management configuration
+#
+# All thresholds for the live trading safety layer live here.
+# Percentages are proportional to account size; dollar amounts are for $10K test capital.
+#
+# Edit this file to tune risk parameters. Restart the trader to pick up changes.
+
+account:
+  # Baseline capital for dollar-denominated thresholds.
+  # Risk manager reads live equity; this is only for alert context.
+  nominal_capital_usd: 10000
+
+circuit_breaker:
+  # Hard halts that flatten all positions and stop the trader.
+  max_dd_from_high_water_pct: 10.0    # partnership-level kill switch
+  max_dd_24h_pct: 5.0                 # rolling 24h drawdown
+  max_loss_daily_usd: 500             # 5% of $10K in one calendar day
+  require_manual_resume: true         # must delete kill flag + restart
+
+flash_crash_guard:
+  # Separate thread that polls prices between 30-min bars via WebSocket.
+  enabled: true
+  poll_interval_sec: 5
+  per_position_move_pct: 3.0          # exit if any position moves 3% against
+  portfolio_unrealized_pct: -2.0      # exit all if total unrealized < -2%
+
+position_limits:
+  # Hard caps enforced before every order.
+  max_leverage: 1.3                   # buffer over 1.2x target
+  max_notional_per_coin_usd: 5000     # 50% of $10K max per coin
+  max_concentration_pct: 50           # no single coin > 50% equity
+  max_open_positions: 3               # BTC + ETH + SOL only
+  allowed_symbols: [BTC, ETH, SOL]
+
+data_guard:
+  # Validates market data before trading on it.
+  stale_candle_max_age_intervals: 2   # halt if candle > 60min old (for 30m bars)
+  price_deviation_pct: 10.0           # reject if price gaps 10%+ from last bar
+  funding_alert_per_8h_bps: 50        # warn if funding > 50 bps per 8h
+
+order_safety:
+  max_slippage_bps: 15                # reject fill if > 15 bps from expected
+  order_timeout_sec: 30               # cancel unfilled limits after 30s
+  max_retries: 3
+  retry_backoff_sec: [2, 5, 10]
+  fill_verification: true             # confirm position matches intent after fill
+
+correlation_guard:
+  # Reduces exposure (not full flatten) when all positions moving against us.
+  enabled: true
+  min_positions_losing: 3             # all 3 coins losing simultaneously
+  unrealized_threshold_pct: -1.5      # each position must be down > 1.5%
+  exposure_reduction_pct: 50          # halve positions on trigger
+  cooldown_intervals: 1               # wait 1 bar before re-expanding
+
+alerts:
+  # All optional — system works without any of these.
+  telegram_enabled: false             # FLIP TO TRUE WHEN BOT TOKEN SET
+  telegram_bot_token: null
+  telegram_chat_id: null
+  log_file: logs/risk_manager.log
+  heartbeat_interval_hours: 6
+  daily_summary_hour_utc: 14          # 10am ET
+
+watchdog:
+  heartbeat_interval_sec: 60          # trader writes heartbeat every 60s
+  max_silent_sec: 300                 # alert + restart if no heartbeat for 5min
+  heartbeat_file: state/heartbeat
+  kill_flag_file: state/kill.flag
