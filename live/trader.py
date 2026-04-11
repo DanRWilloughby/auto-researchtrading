@@ -414,9 +414,39 @@ def main():
         show_status(state_file, client)
         return
 
-    # Build risk manager with live equity as baseline
+    # Load state FIRST so we can restore cross-tick risk state.
+    # The circuit breaker's high-water mark and 24h rolling equity window
+    # must persist across cron fires — otherwise each fresh process sees
+    # only a single data point and the drawdown check never fires.
+    state_file = derive_live_state_path(strategy_path, args.instance)
     initial_equity = client.get_equity_usd()
+    state = load_state(state_file, args.interval, initial_equity)
+
+    # Build risk manager, then RESTORE circuit breaker history from state
     risk_mgr = RiskManager.from_config(initial_equity=initial_equity)
+
+    # Restore high-water mark from persisted state (fix for cross-tick CB bug)
+    state_peak = float(state.get("peak_equity", initial_equity))
+    risk_mgr.circuit_breaker.high_water = max(state_peak, initial_equity)
+
+    # Restore 24h rolling equity window from the state's equity_curve
+    from risk.circuit_breaker import EquityPoint
+    now_sec = time.time()
+    cutoff_sec = now_sec - 24 * 3600
+    equity_history_restored = 0
+    for point in state.get("equity_curve", []):
+        ts_ms = point.get("ts", 0)
+        ts_sec = ts_ms / 1000 if ts_ms else 0
+        if ts_sec >= cutoff_sec:
+            eq = point.get("equity", 0)
+            risk_mgr.circuit_breaker.equity_history.append(EquityPoint(ts_sec, eq))
+            equity_history_restored += 1
+
+    logger.info(
+        f"Risk state restored: high_water=${risk_mgr.circuit_breaker.high_water:,.2f} "
+        f"(from peak_equity={state_peak:,.2f}), "
+        f"24h window={equity_history_restored} points"
+    )
 
     # Wire flash crash guard to the live price feed
     emergency_exit_called = [False]  # closure-captured flag
@@ -453,14 +483,12 @@ def main():
             "instance": args.instance,
             "strategy": Path(strategy_path).parent.name,
             "equity": f"${initial_equity:,.2f}",
+            "high_water": f"${risk_mgr.circuit_breaker.high_water:,.2f}",
             "symbols": ",".join(args.symbols),
         },
     ))
 
-    # Load state
-    state_file = derive_live_state_path(strategy_path, args.instance)
-    state = load_state(state_file, args.interval, initial_equity)
-
+    # state_file and state were loaded earlier (before risk manager build)
     if args.once:
         # Single tick mode (cron)
         try:
