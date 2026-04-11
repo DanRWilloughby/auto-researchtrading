@@ -5,21 +5,26 @@
 # Runs in parallel with run-cron-30m-concentrated.sh (paper trader).
 # Paper trader remains completely untouched by this script.
 #
-# Both scripts run on the same VM, same Python env, same cron schedule.
-# Only difference: paper trades simulated fills against Hyperliquid data,
-# live trades real orders on Coinbase with the full risk manager.
+# SAFETY: Double dry-run gate
+#   1. LIVE_TRADER_DRY_RUN env var set to "yes"
+#   2. --dry-run flag explicitly passed
+# Both must be removed to actually trade.
+#
+# To switch to LIVE trading:
+#   1. Remove both "LIVE_TRADER_DRY_RUN=yes" and "--dry-run"
+#   2. Commit the change (this script is tracked)
+#   3. Watch the first tick carefully via Telegram alerts
 #
 # Cron entry:
-#   15,45 * * * * /home/openclaw/auto-researchtrading/paper/run-cron-30m-concentrated-live.sh
-#
-# Flip between dry-run and live by editing the --live flag below:
-#   --dry-run (default, no real orders, just logs what would have happened)
-#   --live    (real orders via Coinbase API)
+#   16,46 * * * * /home/openclaw/auto-researchtrading/paper/run-cron-30m-concentrated-live.sh
+
 export PATH="$HOME/.local/bin:$PATH"
+export LIVE_TRADER_DRY_RUN=yes   # DRY-RUN GATE 1 (env var)
+
 cd ~/auto-researchtrading
 
-# DRY RUN MODE by default. Change to --live when ready for real orders.
 uv run live/trader.py --once \
+  --dry-run \
   --strategy strategies/30m-concentrated/strategy.py \
   --interval 30m \
   >> live/logs/30m-concentrated-cron.log 2>&1
