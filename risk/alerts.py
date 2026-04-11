@@ -97,6 +97,30 @@ class AlertDispatch:
         self._last_heartbeat = 0.0
         self._telegram_warned = False
 
+        # Load Telegram credentials from secrets file if present.
+        # Config YAML is committed to git; the secrets file is gitignored.
+        # This way thresholds can be tuned via YAML without exposing tokens.
+        self._try_load_telegram_secrets()
+
+    def _try_load_telegram_secrets(self) -> None:
+        """Load telegram bot_token + chat_id from secrets/telegram.json if present."""
+        import json
+        secrets_path = self.log_dir / "secrets" / "telegram.json"
+        if not secrets_path.exists():
+            return
+        try:
+            with open(secrets_path) as f:
+                data = json.load(f)
+            bot_token = data.get("bot_token")
+            chat_id = data.get("chat_id")
+            if bot_token and chat_id:
+                self.config.telegram_bot_token = bot_token
+                self.config.telegram_chat_id = str(chat_id)
+                self.config.telegram_enabled = True
+                logger.info("Telegram credentials loaded from %s", secrets_path)
+        except Exception as e:
+            logger.warning("Failed to load telegram secrets: %s", e)
+
     def dispatch(self, alert: Alert) -> None:
         """Route an alert to all enabled sinks."""
         # Always write to log file
