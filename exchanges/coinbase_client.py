@@ -254,27 +254,83 @@ class CoinbaseClient(ExchangeClient):
         return df
 
     # ---------- account ----------
-    def get_cash_balance_usd(self) -> float:
-        """USD available for futures trading."""
+    def _get_futures_balance_summary(self) -> dict:
+        """Fetch CFM futures balance summary as a plain dict.
+
+        This is the ONLY source of truth for futures-aware cash/equity,
+        because the regular get_accounts() endpoint only sees the spot USD
+        balance and misses funds sitting in the CFM sub-account or in
+        pending transfers between spot and futures.
+
+        Normalizes across three response shapes the SDK has returned:
+          - dict (direct JSON)
+          - string repr of a dict (older SDK versions)
+          - typed object with __dict__ (newer SDK versions)
+        """
+        def deep_dictify(obj):
+            """Recursively convert SDK response objects to plain dicts."""
+            if isinstance(obj, dict):
+                return {k: deep_dictify(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [deep_dictify(v) for v in obj]
+            if hasattr(obj, "__dict__"):
+                return deep_dictify(obj.__dict__)
+            return obj
+
         try:
-            resp = self._client.get_accounts()
-            pd_ = _to_dict(resp)
-            accts = pd_.get("accounts", [])
-            if accts is None:
-                accts = []
-            # Find USD account(s) and sum available balance
-            total_usd = 0.0
-            for a in accts:
-                ad = _to_dict(a)
-                currency = ad.get("currency", "")
-                if currency == "USD":
-                    bal = ad.get("available_balance") or {}
-                    if isinstance(bal, dict):
-                        total_usd += _to_float(bal.get("value"))
-            return total_usd
+            resp = self._client.get_futures_balance_summary()
+            rd = deep_dictify(resp)
+            summary = rd.get("balance_summary", {}) if isinstance(rd, dict) else {}
+
+            # Handle legacy string-repr case
+            if isinstance(summary, str):
+                import ast
+                try:
+                    summary = ast.literal_eval(summary)
+                except Exception:
+                    summary = {}
+
+            return summary if isinstance(summary, dict) else {}
         except Exception as e:
-            logger.error("get_cash_balance_usd failed: %s", e)
-            return 0.0
+            logger.error("get_futures_balance_summary failed: %s", e)
+            return {}
+
+    def _summary_value(self, summary: dict, key: str) -> float:
+        """Extract a float from a {value, currency, cbrn} nested struct."""
+        field = summary.get(key, {}) if isinstance(summary, dict) else {}
+        if isinstance(field, dict):
+            return _to_float(field.get("value"))
+        return _to_float(field)
+
+    def get_cash_balance_usd(self) -> float:
+        """USD available for futures trading (futures-aware, not spot-only).
+
+        Returns the CFM available_margin, which accounts for:
+          - Spot USD balance (cbi_usd_balance)
+          - Futures sub-account balance (cfm_usd_balance)
+          - Margin locked by open positions
+          - Realized/unrealized P&L
+          - Pending transfers between spot and futures
+        """
+        summary = self._get_futures_balance_summary()
+        if not summary:
+            # Fallback: sum USD spot balances (less accurate but better than 0)
+            try:
+                resp = self._client.get_accounts()
+                pd_ = _to_dict(resp)
+                accts = pd_.get("accounts", []) or []
+                total_usd = 0.0
+                for a in accts:
+                    ad = _to_dict(a)
+                    if ad.get("currency") == "USD":
+                        bal = ad.get("available_balance") or {}
+                        if isinstance(bal, dict):
+                            total_usd += _to_float(bal.get("value"))
+                return total_usd
+            except Exception as e:
+                logger.error("get_cash_balance_usd fallback failed: %s", e)
+                return 0.0
+        return self._summary_value(summary, "available_margin")
 
     def get_positions(self) -> dict[str, Position]:
         """
@@ -337,10 +393,35 @@ class CoinbaseClient(ExchangeClient):
         return positions
 
     def get_equity_usd(self) -> float:
-        """Total equity = cash + unrealized PnL across all positions."""
+        """Total equity in the trading account.
+
+        Uses CFM `total_usd_balance` which is the full account value
+        (spot + futures sub-account + margin + unrealized PnL).
+        """
+        summary = self._get_futures_balance_summary()
+        if summary:
+            total = self._summary_value(summary, "total_usd_balance")
+            if total > 0:
+                return total
+        # Fallback
         cash = self.get_cash_balance_usd()
         pnl = sum(p.unrealized_pnl_usd for p in self.get_positions().values())
         return cash + pnl
+
+    def get_futures_buying_power(self) -> float:
+        """Futures-specific buying power (can be > cash if using leverage)."""
+        summary = self._get_futures_balance_summary()
+        return self._summary_value(summary, "futures_buying_power")
+
+    def get_daily_realized_pnl(self) -> float:
+        """Today's realized P&L from closed positions (not including fees)."""
+        summary = self._get_futures_balance_summary()
+        return self._summary_value(summary, "daily_realized_pnl")
+
+    def get_pending_transfers(self) -> float:
+        """Amount currently in-flight between spot and futures sub-accounts."""
+        summary = self._get_futures_balance_summary()
+        return self._summary_value(summary, "total_pending_transfers_amount")
 
     # ---------- order execution ----------
     def place_market_order(
