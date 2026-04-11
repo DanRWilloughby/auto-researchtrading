@@ -19,10 +19,22 @@ circuit_breaker:
 
 flash_crash_guard:
   # Separate thread that polls prices between 30-min bars via WebSocket.
+  #
+  # Thresholds deliberately set downstream of the strategy's own ATR-based
+  # stops (~3-6% depending on volatility regime). This guard only fires on
+  # catastrophes the strategy itself couldn't handle: API outage preventing
+  # strategy stops from executing, black swan gaps, exchange glitches, or
+  # unprecedented volatility regimes.
+  #
+  # Backtest justification (scripts/backtest_all_risk_guards.py):
+  #  - Per-position: max observed adverse move on any cycle was 4.04%.
+  #    At 8% we have 4% of margin. Guard never fires on normal strategy ops.
+  #  - Portfolio: max observed DD was 2.49% (15 days paper, +48.78% return).
+  #    At -8% we have 5.5% of margin. ~2% cushion before 10% kill switch.
   enabled: true
   poll_interval_sec: 5
-  per_position_move_pct: 3.0          # exit if any position moves 3% against
-  portfolio_unrealized_pct: -2.0      # exit all if total unrealized < -2%
+  per_position_move_pct: 8.0          # exit if any position moves 8% against
+  portfolio_unrealized_pct: -8.0      # exit all if total unrealized < -8%
 
 position_limits:
   # Hard caps enforced before every order.
@@ -47,9 +59,11 @@ order_safety:
 
 correlation_guard:
   # Reduces exposure (not full flatten) when all positions moving against us.
+  # Raised from -1.5% to -2.0% based on backtest: at -1.5% it fires once
+  # during normal volatility, at -2.0% it never fires on paper data.
   enabled: true
   min_positions_losing: 3             # all 3 coins losing simultaneously
-  unrealized_threshold_pct: -1.5      # each position must be down > 1.5%
+  unrealized_threshold_pct: -2.0      # each position must be down > 2.0%
   exposure_reduction_pct: 50          # halve positions on trigger
   cooldown_intervals: 1               # wait 1 bar before re-expanding
 
