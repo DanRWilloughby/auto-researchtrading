@@ -414,9 +414,54 @@ class CoinbaseClient(ExchangeClient):
         return self._summary_value(summary, "futures_buying_power")
 
     def get_daily_realized_pnl(self) -> float:
-        """Today's realized P&L from closed positions (not including fees)."""
+        """Today's realized P&L from closed positions (price movement only, NOT including fees).
+
+        WARNING: Coinbase's daily_realized_pnl field excludes fees. Use
+        get_daily_total_pnl() for a complete picture.
+        """
         summary = self._get_futures_balance_summary()
         return self._summary_value(summary, "daily_realized_pnl")
+
+    def get_daily_total_fees(self) -> float:
+        """
+        Sum total fees from all filled orders for the current UTC calendar day.
+
+        Queries the orders endpoint and filters to today's filled orders.
+        Returns positive USD amount (fees are a cost, not signed).
+        """
+        from datetime import datetime, timezone
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        total_fees = 0.0
+        try:
+            for product_id in (spec.product_id for spec in self._product_specs.values()):
+                try:
+                    resp = self._client.list_orders(
+                        product_id=product_id,
+                        limit=100,
+                        order_status=["FILLED"],
+                    )
+                    rd = _to_dict(resp)
+                    orders = rd.get("orders", []) or []
+                    for o in orders:
+                        od = _to_dict(o)
+                        created = str(od.get("created_time", ""))
+                        if not created.startswith(today_str):
+                            continue
+                        fee = _to_float(od.get("total_fees"))
+                        total_fees += fee
+                except Exception as e:
+                    logger.warning("Failed to list orders for %s: %s", product_id, e)
+        except Exception as e:
+            logger.error("get_daily_total_fees failed: %s", e)
+        return total_fees
+
+    def get_daily_total_pnl(self) -> float:
+        """
+        Complete daily P&L including fees: price P&L minus fees.
+
+        Use this for risk monitoring where fees matter (e.g. daily loss cap).
+        """
+        return self.get_daily_realized_pnl() - self.get_daily_total_fees()
 
     def get_pending_transfers(self) -> float:
         """Amount currently in-flight between spot and futures sub-accounts."""

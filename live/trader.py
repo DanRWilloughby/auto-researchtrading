@@ -134,15 +134,26 @@ def run_one_tick(
         equity = client.get_equity_usd()
         cash = client.get_cash_balance_usd()
         positions = client.get_positions()
-        daily_pnl = client.get_daily_realized_pnl()
+        # NOTE: get_daily_total_pnl includes fees (daily_realized_pnl - total_fees).
+        # The raw daily_realized_pnl from Coinbase EXCLUDES fees, which can hide
+        # real daily losses from the circuit breaker. We sum fees from filled
+        # orders separately and combine.
+        daily_price_pnl = client.get_daily_realized_pnl()
+        daily_fees = client.get_daily_total_fees()
+        daily_total_pnl = daily_price_pnl - daily_fees
     except Exception as e:
         logger.error("Failed to fetch account state from Coinbase: %s", e)
         risk_mgr.alerts.warning(f"Account fetch failed: {e}")
         return state
 
+    # Use the complete P&L (including fees) for risk monitoring
+    daily_pnl = daily_total_pnl
+
     logger.info(
         f"Account: equity=${equity:,.2f} cash=${cash:,.2f} "
-        f"positions={len(positions)} daily_pnl=${daily_pnl:+,.2f}"
+        f"positions={len(positions)} "
+        f"daily_pnl=${daily_pnl:+,.2f} "
+        f"(price=${daily_price_pnl:+,.2f} fees=${daily_fees:,.2f})"
     )
 
     # --- 2. Build position snapshots (for flash crash guard) ---
@@ -174,6 +185,9 @@ def run_one_tick(
     state["cash"] = cash
     state["positions"] = pos_notionals
     state["entry_prices"] = {sym: p.entry_price for sym, p in positions.items()}
+    state["daily_price_pnl"] = daily_price_pnl
+    state["daily_fees"] = daily_fees
+    state["daily_total_pnl"] = daily_total_pnl
 
     # --- 4. Check if risk manager has halted us ---
     if risk_mgr.halted:
