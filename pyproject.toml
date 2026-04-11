@@ -1,13 +1,16 @@
 [project]
 name = "autotrader"
-version = "0.2.0"
-description = "Autonomous trading strategy research (autoresearch for Hyperliquid)"
+version = "0.3.0"
+description = "Autonomous trading strategy research + live Coinbase perps execution"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.26.0,<3.0",
     "pandas>=2.1.0,<3.0",
     "scipy>=1.11.0,<2.0",
     "requests[security]>=2.31.0,<3.0",
-    "pyarrow>=18.0.0",           # >=14.0.2 fixes CVE-2023-47248, >=18 has py3.13 wheels
-    "yfinance>=0.2.36,<1.0",     # equity data (Yahoo Finance)
+    "pyarrow>=18.0.0",             # >=14.0.2 fixes CVE-2023-47248, >=18 has py3.13 wheels
+    "yfinance>=0.2.36,<1.0",       # equity data (Yahoo Finance)
+    # Live trading on Coinbase perps (live/trader.py, exchanges/coinbase_client.py)
+    "coinbase-advanced-py>=1.8.0",  # official Coinbase Advanced Trade SDK (ES256 JWT)
+    "pyyaml>=6.0",                  # risk config loader (risk/config.yaml)
 ]

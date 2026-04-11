@@ -20,7 +20,7 @@ from prepare import Signal, PortfolioState, BarData
 
 # --- Configuration ---
 ACTIVE_SYMBOLS = ["BTC", "ETH", "SOL"]
-SYMBOL_WEIGHTS = {"BTC": 0.20, "ETH": 0.30, "SOL": 0.50}
+SYMBOL_WEIGHTS = {"BTC": 0.333, "ETH": 0.333, "SOL": 0.334}
 
 # --- 1h Trend Filter Parameters ---
 HTF_EMA_FAST = 14
