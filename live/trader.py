@@ -73,6 +73,10 @@ def load_state(state_file: Path, interval: str, initial_equity: float) -> dict:
         "started_at": datetime.now(timezone.utc).isoformat(),
         "interval": interval,
         "initial_equity": initial_equity,
+        # paper_state.json-compatible fields (for dashboard)
+        "cash": initial_equity,
+        "positions": {},
+        "entry_prices": {},
         "equity_curve": [{"ts": int(time.time() * 1000), "equity": initial_equity}],
         "trade_log": [],
         "last_bar_ts": {},
@@ -165,6 +169,11 @@ def run_one_tick(
     state["equity_curve"].append({"ts": now_ms, "equity": equity})
     if equity > state["peak_equity"]:
         state["peak_equity"] = equity
+
+    # Update dashboard-compatible fields with latest snapshot from Coinbase
+    state["cash"] = cash
+    state["positions"] = pos_notionals
+    state["entry_prices"] = {sym: p.entry_price for sym, p in positions.items()}
 
     # --- 4. Check if risk manager has halted us ---
     if risk_mgr.halted:
