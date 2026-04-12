@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "0c93a8bdadce",
+  "session_id": "c106d67f-cf4d-4af2-92f2-ef5a017e52fd",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-12T22:46:31.535523Z",
+  "branch": "autotrader/30m-exp1",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "engine/backtest.py",
+    "engine/prepare.py",
+    "scripts/analyze_conviction.py",
+    "scripts/compare_fee_variants.py",
+    "strategies/30m-concentrated/COINBASE_BACKTEST_REPORT.md",
+    "strategies/30m-concentrated/CONVICTION_ANALYSIS_REPORT.md",
+    "strategies/30m-concentrated/FEE_REDUCTION_REPORT.md",
+    "strategies/30m-concentrated/results.tsv",
+    "strategies/30m-concentrated/strategy.py",
+    "strategies/30m-concentrated/strategy_min4.py",
+    "strategies/30m-concentrated/strategy_notrade_hours.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-6[1m]",
+  "turn_id": "ad2a3fe5d515",
+  "token_usage": {
+    "input_tokens": 3882,
+    "cache_creation_tokens": 220195,
+    "cache_read_tokens": 6950216,
+    "output_tokens": 47888,
+    "api_call_count": 81
+  },
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-12T22:46:31.008339Z",
+    "agent_lines": 1042,
+    "agent_removed": 25,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1042,
+    "total_lines_changed": 1067,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

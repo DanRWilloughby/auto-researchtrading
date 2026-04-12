@@ -1,0 +1,379 @@
+Hi. # Instructions: Backtest 30m-Concentrated Strategy on Coinbase Data
+
+## Context
+
+The 30m-concentrated strategy was developed and optimized using Hyperliquid (HL) and Binance price data. It's now running LIVE on Coinbase perps ($10K real money). In the first 24 hours, we found that HL Paper and CB Live agree on trade direction only **49.3% of the time** — essentially a coin flip. The strategy's signal parameters may not be optimal for Coinbase's price feed.
+
+**Goal**: Backtest the current strategy parameters on Coinbase historical candle data to see if the performance is comparable to HL backtests, or if parameters need retuning.
+
+## What Exists
+
+- **Backtester**: `engine/backtest.py` (164 lines). Loads strategy, runs against historical candles, logs results to `results.tsv`.
+- **Data pipeline**: `engine/prepare.py` handles data download, splits, and backtest execution. Currently downloads from CryptoCompare / Binance.US / Hyperliquid depending on interval.
+- **Coinbase candle API**: Already implemend in `exchanges/coinbase_client.py` — the `fetch_candles()` method works and is used by the live trader.
+- **Strategy**: `strategies/30m-concentrated/strategy.py` — same code for all instances.
+- **Existing HL results**: `strategies/30m-concentrated/results.tsv` — 99 experiments, baseline Sharpe 25.07, return 1203%, win rate 75.5%.
+
+## Data Splits
+
+```
+TRAIN: 2023-06-01 → 2024-06-30
+VAL:   2024-07-01 → 2025-03-31
+TEST:  2025-04-01 → 2025-12-31
+```
+
+Coinbase perps launched July 2025, so you'll only have data from ~2025-07 onward. That covers the TEST split and a bit of VAL. This is fine — we primarily care about recent performance comparison, not training.
+
+## Steps
+
+### 1. Add a Coinbase candle downloader to `engine/prepare.py`
+
+Add a `_download_coinbase_candles()` function similar to `_download_hl_candles()` (line 440). Use the existing `CoinbaseClient.fetch_candles()` method. Key details:
+
+- Product IDs: BTC → `BIP-20DEC30-CDE`, ETH → `ETP-20DEC30-CDE`, SOL → `SLP-20DEC30-CDE`
+- ContraETH=0.1, SOL=5.0
+- Coinbase candle API caps at 350 candles per request (already handled by `fetch_candles()`)
+- The candle prices from Coinbase perps are the perp prices, not spot — this is what the live trader sees
+- Funding rates: Coinbase has hourly funding. Use `fetch_funding_rate()` or the product details endpoint.
+
+### 2. Add a `--source coinbase` flag to `engine/backtest.py`
+
+Or simpler: add an env var `AUTOTRADER_DATA_SOURCE=coinbase` that makes `download_data()` prefer Coinbase candles. Save the Coinbase data to separate parquet files (e.g., `BTC_30m_coinbase.parquet`) so it doesn't overwrite the existing HL/Binance data.
+
+### 3. Run the baseline backtest on Coinbase data
+
+```bash
+cd /home/openclaw/auto-researchtrading
+
+# Download Coinbase candles (will only get data from July 2025+)
+AUTOTRADER_DATA_SOURCE=coinbase uv run engine/backtest.py \
+  --strategy strategies/30m-concentrated/strategy.py \
+  --interval 30m \
+  --split test \
+  --label "cb-baseline"
+```
+
+### 4. Compare results
+
+The key metrs to compare against the HL baseline:
+
+| Metric | HL Baseline (val) | CB Baseline (test) |
+|--------|-------------------|---------------------|
+| Sharpe | 25.07 | ? |
+| Return % | 1203.5% | ? |
+| Max DD % | 0.74% | ? |
+| Win Rate | 75.5% | ? |
+| Profit Factor | 9.55 | ? |
+| Trades | 15,631 | ? |
+
+Note: different time periods, so absolute returns aren't directly comparable. Focus on **Sharpe ratio, win rate, and max drawdown** as the cross-period metrics.
+
+### 5. If CB performance is meaningfully worse — run parameter sweep
+
+Use the same experiment framework that produced the 99 experiments in `results.tsv`. Key parameters to sweep:
+
+- `BASE_POSITION_PCT`: currently 1.20 (was optimized on HL data)
+- `TAKE_PROFIT_PCT`: currently 0.012
+- EMA/RSI/MACD windows if the signal quality differs
+- `ATR_STOP_MULT`: currently 8.0
+
+### 6. Fee model adjustment
+
+The backtest fee model should match Coinbase's actual fees:
+- **Current (taker)**: 3 bps + $0.15/contract regulatory fee
+- Check `engine/prepare.py` for `COST_PETRADE` or similar — make sure it matches Coinbase, not HL
+
+## Important Notes
+
+- **Do NOT modify the live trader, strategy.py, or any cron jobs**
+- Save CB backtest results with a clear label (e.g., `cb-baseline`, `cb-exp1`) in the same `results.tsv` or a separate `results_coinbase.tsv`
+- The Coinbase API requires auth — the credentials are in `secrets/coinbase_api.json`
+- Rate limiting: Coinbase API is slower than HL. Budget extra time for data download.
+- If Coinbase data only covers ~9 months, the backtest will be shorter than the HL run — that's expected and fine.
+
+## Expected Outcome
+
+After this, we'll know:
+1. Whether the current parameters work well on CB data (Sharpe within ~20% of HL = fine)
+2. Whether there's an obvious parameter adjustment that improves CB performance
+3. Whether the 49% direction agreement is regime-specific (chop) or structural (different optimal parameters per exchange)
+
+---
+
+why is there such a massive return difference.  everything else looks pretty reasonable? just the nuber of trades and duration?I tihkn the coinbase bps round trip is actually a bit higher but is negligable.  can you write a document for me that shows this test and summarizes the findings
+
+---
+
+# Instructions: Conviction (Vote Count) vs Trade Return Backtest
+
+## Context
+
+The 30m-concentrated strategy uses 5 entry indicators that vote on direction (momentum, very-short momentum, EMA crossover, RSI, MACD). It requires MIN_VOTES = 3 out of 5 to enter. So conviction at entry ranges from 3/5 to 5/5.
+
+**We just added vote logging**: `signal_metadata` is now included in every trade record with `bull_votes`, `bear_votes`, and `htf` (higher timeframe direction). This is live on the VM as of 2026-04-12. But we don't have enough live data yet.
+
+**Goal**: Run the existing backtester on Coinbase data with vote logging enabled, then analyze whether higher conviction (4/5 or 5/5) correlates with better trade returns than lower conviction (3/5). This determines whether a hybrid maker/taker order routing strategy is viable.
+
+## What Changed on the VM
+
+1. **`engine/prepare.py`** — `Signal` dataclass now has `metadata: dict = None`
+2. **`strategies/30m-concentrated/strategy.py`** — all 10 `Signal()` calls include `metadata={"bull_votes": bull_votes, "bear_votes": bear_votes, "htf": htf_direction}`
+3. **`live/trader.py`** — trade records now include `"signal_metadata"` field (both live and paper paths)
+
+## Steps
+
+### 1. Modify the backtester to log vote counts
+
+The backtester (`engine/backtest.py` and `engine/prepare.py`'s `run_backtest()`) processes Signals but doesn't currently write `signal_metadata` to its output. You need to:
+
+- In `run_backtest()` (in `engine/prepare.py`), when recording a trade, check if the Signal has `metadata` and include it in the trade record
+- The trade records should have a `signal_metadata` field just like `live/trader.py` does
+
+### 2. Run the backtest on Coinbase data
+
+```bash
+cd /home/openclaw/auto-researchtrading
+
+uv run engine/backtest.py \
+  --strategy strategies/30m-concentrated/strategy.py \
+  --interval 30m \
+  --split test \
+  --source coinbase \
+  --label "cb-conviction-analysis"
+```
+
+### 3. Analyze results by vote count
+
+After the backtest completes, the trade log ll have `signal_metadata` on each trade. Write an analysis script that:
+
+1. Pairs OPEN trades with their corresponding CLOSE trades
+2. Groups by the ENTRY trade's conviction level (the relevant votes: `bull_votes` for longs, `bear_votes` for shorts)
+3. Computes per-group:
+   - Number of trades
+   - Win rate
+   - Average gross PnL
+   - Average fee
+   - Average net PnL
+   - Total net PnL
+   - Average holding time (in bars)
+
+Expected output table:
+
+```
+Votes | Trades | Win Rate | Avg Net | Total Net | Avg Hold (bars)
+3/5   |   ???  |   ???%   |  $???   |   $???    |    ???
+4/5   |   ???  |   ???%   |  $???   |   $???    |    ???
+5/5   |   ???  |   ???%   |  $???   |   $???    |    ???
+```
+
+### 4. Compute the hybrid routing value
+
+If the data shows a meaningful difference between conviction levels, compute:
+
+- **Scenario A (current)**: All trades use taker orders (3 bps + $0.15/contract reg fee)
+- **Scenario B (hybrid)**: 3/5 conviction trades use maker orders (0 bps + $0.15 reg fee, with 68% fill rate from our shadow data), 4/5 and 5/5 use taker orders
+- **Scenario C (all maker)**: All trades use maker orders (0 bps + $0.15 reg fee, 68% fill rate)
+
+For each scenario, compute total fees, total PnL from filled trades, and missed PnL from unfilled trades (for maker orders).
+
+### 5. Key question to answer
+
+**Is the alpha from high-conviction trades (4/5, 5/5) meaningfully higher than low-conviction (3/5)?**
+
+If yes → hybrid routing is viable: use taker for high-conviction (don't risk missing), maker for low-conviction (save fees on trades that are closer to coin flips anyway).
+
+If no → conviction doesn't predict return, and we should just use maker orders universally (or not at all).
+
+## Important Notes
+
+- **Do NOT modify the live cron jobs or the running strategy** — the vote logging changes are already deployed and will take effect on the next cron fire
+- The backtest should use Coinbase data (`--source coinbase`) since that's where we're trading live
+- The `signal_metadata` field is `None` for exit signals , TP, RSI exits) — that's fine, we only care about ENTRY conviction
+- The `strategy_175x.py` wrapper inherits the metadata changes automatically (it imports the base strategy)
+
+## Files on VM
+
+- Strategy: `strategies/30m-concentrated/strategy.py` (modified — 10 Signal calls with metadata)
+- Signal class: `engine/prepare.py` line 142 (added `metadata` field)
+- Trader: `live/trader.py` (added `signal_metadata` to trade records)
+- Coinbase data: `local-data/*_30m_coinbase.parquet` (from previous backtest run)
+
+---
+
+# Instructions: Backtest 3 Fee-Reduction Strategy Variants on Coinbase Data
+
+## Context
+
+The 30m-concentrated strategy is profitable (Sharpe 26.11 on CB data) but fee drag is the binding constraint. On a choppy day (2026-04-12), the strategy made $67 gross but paid $203 in fees across 62 trades — net -$136. The strategy's alpha is real, but high trade frequency in chop grinds it away.
+
+**Goal:** Backtest 3 variants that reduce fee exposure, using the Coinbase candle data already downloaded. Compare each against the current 30m baseline to see which (if any) improve net returns.
+
+## Variant 1: 1-Hour Candles
+
+**Thesis:** Half the trade frequency = half the fees. Same strategy logic, just slower timeframe.
+
+**Implementation:** No code changes needed. Run the existing strategy on 1h candles:
+
+```bash
+cd /home/openclaw/auto-researchtrading
+
+# Download 1h Coinbase candles if not already present
+uv run engine/backtest.py \
+  --strategy strategies/30m-concentrated/strategy.py \
+  --interval 1h \
+  --split st \
+  --source coinbase \
+  --label "cb-1h-baseline" \
+  --notes "Same strategy on 1h candles, CB data. Testing fee reduction via lower frequency."
+```
+
+**What to compare against:**
+- 30m CB baseline: Sharpe 26.11, win rate 73.2%, 11,016 trades
+- Expect ~half the trades, ~half the fees. Question is whether the signal quality holds on 1h candles or degrades.
+
+**Key metrics:** Sharpe ratio, total net PnL (after fees), trade count, fee-to-gross ratio.
+
+## Variant 2: MIN_VOTES=4 (Higher Conviction Threshold)
+
+**Thesis:** Skip the weakest signals. Conviction analysis showed 4/5 votes produces the best avg net PnL ($18,751 vs $10,778 for 3/5). By raising the entry threshold from 3 to 4, we trade less often and concentrate on stronger signals.
+
+**Implementation:** Create a wrapper strategy (like `strategy_175x.py`):
+
+```python
+# strategies/30m-concentrated/strategy_min4.py
+"""
+MIN_VOTES=4 variant — only enter on 4/5 or 5/5 conviction signals.
+Skips 3/5 signals to reduce trade frequency and fee exposure.
+"""
+impt importlib.util
+from pathlib import Path
+
+_base_path = Path(__file__).parent / "strategy.py"
+_spec = importlib.util.spec_from_file_location("base_strategy", str(_base_path))
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+
+# Override MIN_VOTES at module level before Strategy uses it
+_mod.MIN_VOTES = 4
+
+
+class Strategy(_mod.Strategy):
+    pass
+```
+
+Then backtest:
+
+```bash
+uv run engine/backtest.py \
+  --strategy strategies/30m-concentrated/strategy_min4.py \
+  --interval 30m \
+  --split test \
+  --source coinbase \
+  --label "cb-min-votes-4" \
+  --notes "MIN_VOTES raised from 3 to 4. Testing if skipping weak signals improves net after fees."
+```
+
+**Important:** The module-level override of `MIN_VOTES` works because the Strategy class reads it as a global constant, not an instance variable. Verify by checking that the trade count drops significantly compared to baseline.
+
+**What to compare:**
+- Expect fewer trades (the conviction data showed 2,181 entries at 3/5 vs 1,538 at 4/5 vs 2,374 at 5/5 — so filtering to 4+ removes ~36% of entries)
+- The 3/5 trades contributed positive EV ($10,778 avg net) so removing them WILL reduce gross PnL
+- The question is whether the fee savings from fewer trades outweigh the lost 3/5 alpha
+
+## Variant 3: No-Trade Hours (Skip Low-Volume Periods)
+
+**Thesis:** During 02:00-08:00 UTC (overnight for US markets), crypto tends to chop with thin volume. The strategy trades just as actively but the signals are weaker. Skipping these hours avoids the worst fee-grinding periods.
+
+**Implementation:** Create a time-filtered wrapper:
+
+```python
+# strategies/30m-concentrated/strategy_notrade_hours.py
+"""
+Skips trading during 02:00-08:00 UTC (low-volume chop hours).
+Closes any open positions at 02:00 and doesn't re-enter until 08:00.
+"""
+import importlib.util
+from pathlib import Path
+from datetime import datetime, timezone
+
+_base_path = Path(__file__).parent / "strategy.py"
+_spec = importlib.util.spec_from_file_location("base_strategy", str(_base_path))
+_mod = imptlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+
+# Import Signal from the same place the base strategy does
+from prepare import Signal
+
+NO_TRADE_START = 2   # UTC hour
+NO_TRADE_END = 8     # UTC hour
+
+
+class Strategy(_mod.Strategy):
+    def on_bar(self, bar_data, portfolio):
+        # Check current UTC hour from the latest bar timestamp
+        # Use any symbol's bar data for the timestamp
+        current_hour = None
+        for sym, bd in bar_data.items():
+            ts_sec = bd.timestamp / 1000 if bd.timestamp > 1e12 else bd.timestamp
+            current_hour = datetime.fromtimestamp(ts_sec, tz=timezone.utc).hour
+            break
+
+        if current_hour is not None and NO_TRADE_START <= current_hour < NO_TRADE_END:
+            # During no-trade hours: close any open positions, don't enter new ones
+            signals = []
+            for symbol in ["BTC", "ETH", "SOL"]:
+                if portfolio.positions.get(symbol, 0) != 0:
+                    signals.append(Signal(symbol=symbol, target_position=0.0))
+            return signals
+
+        # Outside no-trade hours: run normal strategy
+        return super().on_bar(bar_data, portfolio)
+```
+
+Then backtest:
+
+```bash
+uv run engine/backtest.py \
+  --strategy strategies/30m-concentrated/strategy_notrade_hours.py \
+  --interval 30m \
+  --split test \
+  --source coinbase \
+  --label "cb-no-trade-0200-0800" \
+  --notes "Skip trading 02:00-08:00 UTC. Close positions at 02:00, resume at 08:00."
+```
+
+**What to compare:**
+- On 2026-04-12, the hours 02:00-05:00 UTC were all net negative (4 hours, ~24 trades, ~-$100 net)
+- Skipping 6 hours out of 24 = 25% fewer trades
+- But we also miss any strong overnight moves (BTC had its big +$88 hour at 01:00 UTC, which would still be captured)
+
+## Comparison Table
+
+After all 3 backtests complete, fill in:
+
+| Variant | Sharpe | Win Rate | Trades | Total Fees | Total Net PnL | Fee/Gross Ratio |
+|---------|--------|----------|--------|------------|---------------|-----------------|
+| 30m baseline (existing) | 26.11 | 73.2% | 11,016 | ? | ? | ? |
+| 1h candles | ? | ? | ? | ? | ? | ? |
+| MIN_VOTES=4 | ? | ? | ? | ? | ? | ? |
+| No-trade 02-08 UTC | ? | ? | ? | ? | ? | ? |
+
+**The winner** is whichever has the highest Sharpe AND a fee/gross ratio below 50%. If multiple variants improve on the baseline, they can potentially be combined (e.g., 1h candles + MIN_VOTES=4).
+
+## Important Notes
+
+- **Do NOT modify the live strategy, trader.py, or cron jobs**
+- All variant strategies should be NEW files in `strategies/30m-concentrated/`
+- Use `--source coinbase` for all backtests (CB data is what we trade on)
+- The Coinbase candle data is already downloaded from the previous backtest run
+- Results go in `strategies/30m-concentrated/results.tsv`
+- The `signal_metadata` changes are already deployed — the variants will inherit vote logging automatically
+- The `strategy_min4.py` approach (module-level override) is cleaner than copying the whole strategy file
+
+---
+
+okay but the 1H has less opportunity to compound. can you show absolute returns on 1hr and 30minute over time please. the shorter time frame allows for more compounding potential which is why we initially did the 30m across the backtest. how many trades did it make and what were the total returns etc.
+
+---
+
+so we eat the fees because the compounding wins over time yes?
