@@ -212,13 +212,14 @@ class Strategy:
                     self._clean_exit(symbol)
                     continue
 
+                _meta = {"bull_votes": bull_votes, "bear_votes": bear_votes, "htf": htf_direction}
                 if current_pos > 0 and bearish and not in_cooldown:
-                    signals.append(Signal(symbol=symbol, target_position=-size))
+                    signals.append(Signal(symbol=symbol, target_position=-size, metadata=_meta))
                     self.entry_prices[symbol] = mid
                     self.peak_prices[symbol] = mid
                     self.atr_at_entry[symbol] = atr
                 elif current_pos < 0 and bullish and not in_cooldown:
-                    signals.append(Signal(symbol=symbol, target_position=size))
+                    signals.append(Signal(symbol=symbol, target_position=size, metadata=_meta))
                     self.entry_prices[symbol] = mid
                     self.peak_prices[symbol] = mid
                     self.atr_at_entry[symbol] = atr
@@ -227,13 +228,14 @@ class Strategy:
             if in_cooldown:
                 continue
 
+            _meta = {"bull_votes": bull_votes, "bear_votes": bear_votes, "htf": htf_direction}
             if bullish:
-                signals.append(Signal(symbol=symbol, target_position=size))
+                signals.append(Signal(symbol=symbol, target_position=size, metadata=_meta))
                 self.entry_prices[symbol] = mid
                 self.peak_prices[symbol] = mid
                 self.atr_at_entry[symbol] = self._calc_atr(bd.history, ATR_LOOKBACK) or mid * 0.02
             elif bearish:
-                signals.append(Signal(symbol=symbol, target_position=-size))
+                signals.append(Signal(symbol=symbol, target_position=-size, metadata=_meta))
                 self.entry_prices[symbol] = mid
                 self.peak_prices[symbol] = mid
                 self.atr_at_entry[symbol] = self._calc_atr(bd.history, ATR_LOOKBACK) or mid * 0.02

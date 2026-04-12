@@ -144,6 +144,7 @@ class Signal:
     symbol: str
     target_position: float   # target USD notional (signed: +long, -short)
     order_type: str = "market"
+    metadata: dict = None     # optional signal metadata (e.g. vote counts)
 
 @dataclass
 class PortfolioState:
@@ -186,6 +187,22 @@ BINANCE_INTERVAL_MAP = {
     "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m",
     "30m": "30m", "1h": "1h", "4h": "4h", "1d": "1d",
 }
+
+# Coinbase perpetual futures product IDs (CFTC-regulated nano perps, expire Dec 2030)
+COINBASE_PRODUCT_MAP = {
+    "BTC": "BIP-20DEC30-CDE",
+    "ETH": "ETP-20DEC30-CDE",
+    "SOL": "SLP-20DEC30-CDE",
+}
+# Coinbase granularity mapping (string enums)
+COINBASE_GRANULARITY_MAP = {
+    "1m": "ONE_MINUTE", "5m": "FIVE_MINUTE", "15m": "FIFTEEN_MINUTE",
+    "30m": "THIRTY_MINUTE", "1h": "ONE_HOUR", "2h": "TWO_HOUR",
+    "6h": "SIX_HOUR", "1d": "ONE_DAY",
+}
+COINBASE_CANDLES_URL = "https://api.coinbase.com/api/v3/brokerage/market/products/{product_id}/candles"
+# Coinbase perps launched ~July 2025; no data before this
+COINBASE_DATA_START = "2025-07-01"
 
 # Secure HTTP session with TLS verification, retries, and backoff
 _http_session = requests.Session()
@@ -487,6 +504,79 @@ def _download_hl_candles(symbol: str, interval: str, start_ms: int, end_ms: int)
     return pd.DataFrame(all_rows)
 
 
+def _download_coinbase_candles(symbol: str, interval: str, start_ms: int, end_ms: int) -> pd.DataFrame:
+    """Download OHLCV candles from Coinbase Advanced Trade public API.
+
+    Uses the public product candles endpoint (no auth required).
+    Coinbase caps at 350 candles per request; we chunk accordingly.
+    """
+    product_id = COINBASE_PRODUCT_MAP.get(symbol)
+    if product_id is None:
+        logger.warning(f"No Coinbase product mapping for {symbol}, skipping")
+        return pd.DataFrame()
+
+    granularity = COINBASE_GRANULARITY_MAP.get(interval)
+    if granularity is None:
+        logger.warning(f"Unsupported Coinbase interval: {interval}")
+        return pd.DataFrame()
+
+    interval_seconds = INTERVAL_CONFIG[interval]["minutes"] * 60
+    chunk_seconds = 300 * interval_seconds  # stay under 350 limit
+
+    start_sec = start_ms // 1000
+    end_sec = end_ms // 1000
+
+    all_rows = []
+    cursor = start_sec
+    while cursor < end_sec:
+        chunk_end = min(cursor + chunk_seconds, end_sec)
+        url = COINBASE_CANDLES_URL.format(product_id=product_id)
+        params = {
+            "start": str(cursor),
+            "end": str(chunk_end),
+            "granularity": granularity,
+        }
+        try:
+            resp = _http_session.get(url, params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            candles = data.get("candles", [])
+            if not candles:
+                cursor = chunk_end
+                continue
+            for c in candles:
+                ts = int(float(c.get("start", 0)))
+                if ts == 0:
+                    continue
+                all_rows.append({
+                    "timestamp": ts * 1000,  # store as ms like other sources
+                    "open": float(c.get("open", 0)),
+                    "high": float(c.get("high", 0)),
+                    "low": float(c.get("low", 0)),
+                    "close": float(c.get("close", 0)),
+                    "volume": float(c.get("volume", 0)),
+                })
+            cursor = chunk_end
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                logger.warning(f"Coinbase rate limited on {symbol}, backing off 10s")
+                time.sleep(10)
+                continue
+            logger.error(f"Coinbase HTTP error for {symbol}: {e}")
+            cursor = chunk_end
+        except Exception as e:
+            logger.error(f"Coinbase candle fetch failed for {symbol}: {e}")
+            cursor = chunk_end
+        time.sleep(0.3)  # rate limit courtesy
+
+    if not all_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(all_rows)
+    df = df.drop_duplicates(subset="timestamp").sort_values("timestamp").reset_index(drop=True)
+    return df
+
+
 def _validate_downloaded_data(df: pd.DataFrame, symbol: str) -> list[str]:
     """Validate downloaded data before caching. Returns list of errors."""
     errors = []
@@ -542,28 +632,46 @@ def _save_data_checksum(symbol: str, filepath: str):
         json.dump(checksums, f, indent=2)
 
 
-def download_data(symbols=None, interval="1h"):
-    """Download historical OHLCV + funding data for given symbols and interval."""
+def _data_filepath(symbol: str, interval: str, source: str = None) -> str:
+    """Build parquet filepath, appending source suffix if non-default."""
+    suffix = f"_{source}" if source else ""
+    return os.path.join(DATA_DIR, f"{symbol}_{interval}{suffix}.parquet")
+
+
+def download_data(symbols=None, interval="1h", source=None):
+    """Download historical OHLCV + funding data for given symbols and interval.
+
+    Args:
+        source: Data source override. "coinbase" downloads from Coinbase perps API
+                and saves to separate parquet files (e.g. BTC_30m_coinbase.parquet).
+                Default (None) uses the existing multi-source fallback chain.
+    """
     assert interval in INTERVAL_CONFIG, f"interval must be one of {VALID_INTERVALS}"
     os.makedirs(DATA_DIR, exist_ok=True)
     if symbols is None:
         symbols = DEFAULT_SYMBOLS
 
-    start_ms = int(pd.Timestamp(TRAIN_START, tz="UTC").timestamp() * 1000)
+    # Coinbase perps only have data from ~July 2025
+    if source == "coinbase":
+        start_ms = int(pd.Timestamp(COINBASE_DATA_START, tz="UTC").timestamp() * 1000)
+    else:
+        start_ms = int(pd.Timestamp(TRAIN_START, tz="UTC").timestamp() * 1000)
     end_ms = int(pd.Timestamp(TEST_END, tz="UTC").timestamp() * 1000)
     interval_min = INTERVAL_CONFIG[interval]["minutes"]
 
     for symbol in symbols:
-        filepath = os.path.join(DATA_DIR, f"{symbol}_{interval}.parquet")
+        filepath = _data_filepath(symbol, interval, source)
         if os.path.exists(filepath):
             existing = pd.read_parquet(filepath)
-            logger.info(f"{symbol} ({interval}): already have {len(existing)} bars")
+            logger.info(f"{symbol} ({interval}, {source or 'default'}): already have {len(existing)} bars")
             continue
 
-        # Data source priority depends on interval:
-        # Hourly+: CryptoCompare (deepest free history) → HL → Binance.US
-        # Sub-hourly: Binance.US (deep, reliable) → HL → CryptoCompare minute agg
-        if interval_min >= 60:
+        if source == "coinbase":
+            logger.info(f"{symbol} ({interval}): downloading from Coinbase...")
+            df = _download_coinbase_candles(symbol, interval, start_ms, end_ms)
+        elif interval_min >= 60:
+            # Data source priority depends on interval:
+            # Hourly+: CryptoCompare (deepest free history) → HL → Binance.US
             logger.info(f"{symbol} ({interval}): downloading from CryptoCompare...")
             df = _download_cryptocompare_candles(symbol, start_ms, end_ms, interval)
             if len(df) < 100:
@@ -573,6 +681,7 @@ def download_data(symbols=None, interval="1h"):
                 logger.info(f"{symbol}: trying HL...")
                 df = _download_hl_candles(symbol, interval, start_ms, end_ms)
         else:
+            # Sub-hourly: Binance.US (deep, reliable) → HL → CryptoCompare minute agg
             logger.info(f"{symbol} ({interval}): downloading from Binance.US...")
             df = _download_binance_candles(symbol, interval, start_ms, end_ms)
             if len(df) < 100:
@@ -599,6 +708,7 @@ def download_data(symbols=None, interval="1h"):
         df["funding_rate"] = df["funding_rate"].fillna(0.0)
 
         # Validate data integrity BEFORE caching
+        # Coinbase data may have fewer bars (only ~9 months), so relax the 100-bar minimum
         validation_errors = _validate_downloaded_data(df, symbol)
         if validation_errors:
             logger.error(f"{symbol} ({interval}): data validation failed, NOT caching:")
@@ -612,11 +722,16 @@ def download_data(symbols=None, interval="1h"):
 
 
 def load_data(split: str = "val", symbols=None, interval="1h",
-              start_date: str = None, end_date: str = None) -> dict:
+              start_date: str = None, end_date: str = None,
+              source: str = None) -> dict:
     """Load OHLCV+funding data for the given split or custom date range.
 
     If start_date and end_date are provided, they override the split parameter.
     Dates should be YYYY-MM-DD format.
+
+    Args:
+        source: Data source to load from. "coinbase" loads from *_coinbase.parquet
+                files. Default (None) loads from the standard parquet files.
     """
     assert interval in INTERVAL_CONFIG, f"interval must be one of {VALID_INTERVALS}"
 
@@ -639,7 +754,7 @@ def load_data(split: str = "val", symbols=None, interval="1h",
 
     result = {}
     for symbol in symbols:
-        filepath = os.path.join(DATA_DIR, f"{symbol}_{interval}.parquet")
+        filepath = _data_filepath(symbol, interval, source)
         if not os.path.exists(filepath):
             continue
         df = pd.read_parquet(filepath)
@@ -884,13 +999,13 @@ def run_backtest(strategy, data: dict, interval="1h",
                     del portfolio.entry_prices[sig.symbol]
                 if sig.symbol in portfolio.positions:
                     del portfolio.positions[sig.symbol]
-                trade_log.append(("close", sig.symbol, delta, exec_price, pnl))
+                trade_log.append(("close", sig.symbol, delta, exec_price, pnl, ts, fee, sig.metadata))
             else:
                 if current_pos == 0:
                     portfolio.cash -= abs(sig.target_position)
                     portfolio.positions[sig.symbol] = sig.target_position
                     portfolio.entry_prices[sig.symbol] = exec_price
-                    trade_log.append(("open", sig.symbol, delta, exec_price, 0))
+                    trade_log.append(("open", sig.symbol, delta, exec_price, 0, ts, fee, sig.metadata))
                 else:
                     old_notional = abs(current_pos)
                     old_entry = portfolio.entry_prices.get(sig.symbol, exec_price)
@@ -907,7 +1022,7 @@ def run_backtest(strategy, data: dict, interval="1h",
                             new_entry = (old_entry * old_notional + exec_price * added) / (old_notional + added)
                             portfolio.entry_prices[sig.symbol] = new_entry
                     portfolio.positions[sig.symbol] = sig.target_position
-                    trade_log.append(("modify", sig.symbol, delta, exec_price, pnl))
+                    trade_log.append(("modify", sig.symbol, delta, exec_price, pnl, ts, fee, sig.metadata))
 
         # Recalculate equity after trades
         unrealized_pnl = 0.0
@@ -1069,6 +1184,8 @@ if __name__ == "__main__":
                         help=f"Bar interval (default: 1h, options: {VALID_INTERVALS})")
     parser.add_argument("--all-symbols", action="store_true",
                         help=f"Download all supported symbols: {ALL_SYMBOLS}")
+    parser.add_argument("--source", default=None, choices=["coinbase"],
+                        help="Data source override (e.g. 'coinbase' for CB perps)")
     args = parser.parse_args()
 
     symbols = ALL_SYMBOLS if args.all_symbols else args.symbols
@@ -1076,9 +1193,11 @@ if __name__ == "__main__":
     print(f"Cache directory: {CACHE_DIR}")
     print(f"Interval: {args.interval}")
     print(f"Symbols: {symbols or DEFAULT_SYMBOLS}")
+    if args.source:
+        print(f"Source: {args.source}")
     print()
 
     print("Downloading data...")
-    download_data(symbols, interval=args.interval)
+    download_data(symbols, interval=args.interval, source=args.source)
     print()
     print("Done! Ready to backtest.")

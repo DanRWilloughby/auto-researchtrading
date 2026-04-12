@@ -25,8 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from prepare import (
-    load_data, run_backtest, compute_score, compute_score_daily_return, TIME_BUDGET,
-    DEFAULT_SYMBOLS, VALID_INTERVALS, ALL_SYMBOLS,
+    load_data, download_data, run_backtest, compute_score, compute_score_daily_return,
+    TIME_BUDGET, DEFAULT_SYMBOLS, VALID_INTERVALS, ALL_SYMBOLS,
 )
 
 # Timeout guard
@@ -135,6 +135,9 @@ if __name__ == "__main__":
                         help="Annualized short borrow rate (e.g. 0.05 = 5%%)")
     parser.add_argument("--eod-flatten", action="store_true",
                         help="Close all positions at end of each trading day")
+    parser.add_argument("--source", default=None, choices=["coinbase"],
+                        help="Data source (e.g. 'coinbase' for CB perp candles). "
+                             "Auto-downloads if not cached. Sets CB fee defaults (3 bps taker).")
     args = parser.parse_args()
 
     # Resolve strategy path
@@ -146,6 +149,14 @@ if __name__ == "__main__":
 
     symbols = ALL_SYMBOLS if args.all_symbols else args.symbols
 
+    # Coinbase fee defaults: 3 bps taker (vs 5 bps HL/Binance)
+    if args.source == "coinbase":
+        if args.taker_fee is None:
+            args.taker_fee = 0.0003
+        # Auto-download Coinbase data if not cached
+        download_data(symbols=symbols or ["BTC", "ETH", "SOL"],
+                      interval=args.interval, source=args.source)
+
     use_custom_range = args.start and args.end
     splits = ["val", "test"] if args.compare else [args.split]
 
@@ -155,15 +166,18 @@ if __name__ == "__main__":
         strategy = load_strategy(strategy_path)
         if use_custom_range:
             data = load_data(split_name, symbols=symbols, interval=args.interval,
-                             start_date=args.start, end_date=args.end)
+                             start_date=args.start, end_date=args.end,
+                             source=args.source)
         else:
-            data = load_data(split_name, symbols=symbols, interval=args.interval)
+            data = load_data(split_name, symbols=symbols, interval=args.interval,
+                             source=args.source)
 
         total_bars = sum(len(df) for df in data.values())
+        source_tag = f", source={args.source}" if args.source else ""
         if use_custom_range:
-            print(f"=== CUSTOM RANGE: {args.start} to {args.end} ({args.interval}) ===")
+            print(f"=== CUSTOM RANGE: {args.start} to {args.end} ({args.interval}{source_tag}) ===")
         else:
-            print(f"=== {split_name.upper()} SPLIT ({args.interval}) ===")
+            print(f"=== {split_name.upper()} SPLIT ({args.interval}{source_tag}) ===")
         print(f"Loaded {total_bars} bars across {list(data.keys())}")
 
         result = run_backtest(strategy, data, interval=args.interval,

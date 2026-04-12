@@ -86,3 +86,8 @@ bull	2024-10-01_2025-01-31	1996.54	21.65	65320.6	7.7991	8699	75.3	10.52	BTC/ETH/
 split-test	val	4855.89	22.10	393546202.3	7.7991	19814	74.9	7.43	BTC/ETH/SOL	2026-03-27	OOS validation
 train-long	2023-06-01_2024-06-30	-999.00	17.15	4223763433.6	12.0194	27461	71.9	7.45	BTC/ETH/SOL	2026-03-27	Full train: 13 months, Jun23-Jun24
 split-test	test	-999.00	19.30	21017411.9	11.6092	19393	73.6	8.95	BTC/ETH/SOL	2026-03-27	OOS validation
+cb-baseline	test	-1241.05	26.11	69886.1	4.1536	11016	73.2	8.32	BTC/ETH/SOL	2026-04-12	Coinbase perp data, 3bps taker fee, test split
+hl-test-baseline	test	-41548.03	23.82	3689344.5	3.9971	19393	73.5	8.95	BTC/ETH/SOL	2026-04-12	HL/Binance data, test split, for CB comparison
+cb-1h-baseline	test	-213.20	20.02	21865.3	3.8019	5624	73.5	9.32	BTC/ETH/SOL	2026-04-12	Same strategy on 1h candles, CB data. Testing fee reduction via lower frequency.
+cb-min-votes-4	test	-242.31	21.30	16031.1	2.7066	8211	68.1	6.06	BTC/ETH/SOL	2026-04-12	MIN_VOTES raised from 3 to 4. Testing if skipping weak signals improves net after fees.
+cb-no-trade-0200-0800	test	-190.34	20.96	10897.5	3.3702	8634	71.1	5.46	BTC/ETH/SOL	2026-04-12	Skip trading 02:00-08:00 UTC. Close positions at 02:00, resume at 08:00.
