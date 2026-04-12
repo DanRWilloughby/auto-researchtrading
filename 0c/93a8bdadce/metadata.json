@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "0c93a8bdadce",
+  "strategy": "manual-commit",
+  "branch": "autotrader/30m-exp1",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "engine/backtest.py",
+    "engine/prepare.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0c/93a8bdadce/0/metadata.json",
+      "transcript": "/0c/93a8bdadce/0/full.jsonl",
+      "content_hash": "/0c/93a8bdadce/0/content_hash.txt",
+      "prompt": "/0c/93a8bdadce/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 428,
+    "cache_creation_tokens": 286738,
+    "cache_read_tokens": 42256211,
+    "output_tokens": 144012,
+    "api_call_count": 227
+  }
+}
