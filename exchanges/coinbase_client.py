@@ -468,6 +468,30 @@ class CoinbaseClient(ExchangeClient):
         summary = self._get_futures_balance_summary()
         return self._summary_value(summary, "total_pending_transfers_amount")
 
+    def get_order_fill_details(self, order_id: str) -> tuple[float, float, float]:
+        """
+        Query a filled order to get the ACTUAL execution details from Coinbase.
+
+        Returns (average_filled_price, total_fees, filled_contracts).
+        These reflect what Coinbase actually settled, not the pre-order estimate.
+        """
+        try:
+            resp = self._client.get_order(order_id)
+            o = resp if isinstance(resp, dict) else (
+                vars(resp) if hasattr(resp, "__dict__") else {}
+            )
+            order = o.get("order", o)
+            if not isinstance(order, dict):
+                order = vars(order) if hasattr(order, "__dict__") else {}
+
+            avg_price = _to_float(order.get("average_filled_price"))
+            total_fees = _to_float(order.get("total_fees"))
+            filled = _to_float(order.get("filled_size"))
+            return avg_price, total_fees, filled
+        except Exception as e:
+            logger.warning("get_order_fill_details(%s) failed: %s", order_id, e)
+            return 0.0, 0.0, 0.0
+
     # ---------- order execution ----------
     def place_market_order(
         self,

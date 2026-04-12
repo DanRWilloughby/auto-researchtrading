@@ -383,6 +383,74 @@ OrderRouter
 
 This is not needed at $10K. Build it when scaling past $500K.
 
+## Operations Log
+
+### 2026-04-11: Live deployment + first 24h of 3-instance comparison
+
+**19:08 UTC — CB Live and CB Paper go live.** All three instances (HL Paper, CB Live, CB Paper) running the same 30m-concentrated strategy at staggered timings (:15/:45, :14/:44, :02/:32). CB Live at $10K real money on Coinbase perps. CB Paper at $10K simulated. HL Paper already running 15 days on Hyperliquid at ~$150K equity.
+
+**19:08–20:32 UTC — Startup phase.** CB Live's cold start burned the 19:00 bar as DRYRUN during initialization, causing it to enter one bar behind HL Paper. All three eventually synchronized on the 20:00 bar — same direction (long BTC/ETH/SOL), same decision. CB Live and HL Paper are 1 minute apart on the same bar (:14 vs :15). CB Paper fires 12 minutes earlier (:02/:32) as the "early bird" timing test.
+
+**First round trip results (same strategy, different timing):**
+- HL Paper: +$457.61 realized (exited at 19:45 near local peak) — NOTE: on a different bar than CB due to startup offset, not a clean comparison
+- CB Paper: +$1.96 realized (exited at 20:02, 12 min earlier than CB Live)
+- CB Live: −$50.90 realized (exited at 20:14, caught the trough)
+- First signal of timing hypothesis: CB Paper's 12-min-earlier exit avoided the worst of the dip
+
+**23:14 UTC — Strategy flips BTC short.** Both HL Paper (23:15) and CB Live (23:14) flip BTC to short on the same 23:00 bar — 1 minute apart, confirming steady-state synchronization. HL also flips SOL; CB Live does not (indicator threshold difference between Hyperliquid and Coinbase data feeds). CB Paper misses this bar entirely because the 23:02 tick couldn't get the 23:00 bar data from Coinbase (data availability lag).
+
+**23:14–03:32 UTC — CB Paper maintenance downtime (7 hours).** Multiple dashboard and trader.py fixes required to resolve:
+1. **Position tracking bug**: `_resync_state_post_orders` wrote pre-order positions (state showed `positions:{}` after a BUY). Fixed by querying Coinbase AFTER orders land.
+2. **Equity stuck at $10K**: Coinbase's `total_usd_balance` CFM field was missing/stale. Fixed by computing equity from `initial + daily_realized_pnl + unrealized`.
+3. **CB Paper shared-account contamination**: Paper instance was reading CB Live's positions from the shared Coinbase account, generating confused signals. Fixed by adding independent `sim_open_lots` tracker and `_execute_paper_sim()` that bypasses `place_market_order` entirely.
+4. **Midnight rollover double-count**: Assumed Coinbase's `daily_realized_pnl` resets at UTC midnight. It does NOT — it's inception-to-date and includes fees. Rollover logic added yesterday's total to a field that already contained it, doubling realized losses ($9,770 shown vs $9,890 actual). Fixed by reading `daily_realized_pnl` directly as total P&L.
+5. **Trade history missing P&L/fees**: Coinbase fill API doesn't return per-trade pnl or fees. Fixed with backfill script (FIFO matching + fee cost model) and ongoing enrichment in `_enrich_trade_fields`.
+6. **Paper sim accumulation bug**: `place_market_order(dry_run=True)` returned the full order size (not the delta from sim state), so every tick added to positions instead of maintaining target. Fixed by `_execute_paper_sim()` which computes deltas against `sim_open_lots`.
+
+During this 7-hour window, CB Live made 26 trades (actively cycling), while CB Paper sat frozen holding long BTC/ETH/SOL from 20:32 entries. Market dropped 2-3% (BTC 73420→71770, ETH 2300→2220, SOL 85.36→82.60).
+
+**03:32 UTC — CB Paper resumes.** First tick with new paper-sim code. Paper sim was still holding longs from 20:32. Strategy signals "go short." Closes longs at a **−$341.36 realized loss** (the accumulated 7 hours of holding through a 2-3% drop). Opens shorts. This single event is ~95% of the performance gap between CB Live and CB Paper.
+
+**Performance at +19 hours (14:09 UTC Apr 12):**
+
+| Instance | Equity | Return | Trades | Status |
+|---|---|---|---|---|
+| CB Live | $10,134 (Coinbase cash) | +1.34% | 58 | Flat, profitable, running clean |
+| CB Paper | $9,661 | −3.39% | 23 | Short BTC/ETH/SOL, sim working correctly |
+| HL Paper | ~$154,843 | +2.93% since 19:08 | active | Flat, most active trader |
+
+**The −4.7% gap between CB Live and CB Paper is NOT a strategy divergence.** It's entirely attributable to the 7-hour maintenance window where CB Paper was frozen holding longs during a drop. CB Live navigated this by actively trading (flipping short at 23:14, cycling through 26 trades). Since CB Paper resumed at 03:32, the new sim code is running correctly — making independent decisions from its own `sim_open_lots`, skipping when already at target, computing proper FIFO P&L on position changes.
+
+**Key infrastructure learnings:**
+- Coinbase's `daily_realized_pnl` is inception-to-date (not daily-resetting) and INCLUDES fees. Don't build rollover logic around it.
+- Coinbase's `total_usd_balance` is unreliable during pending spot↔futures transfers. Use `available_margin + unrealized` for equity.
+- Paper sim instances sharing a Coinbase account MUST track their own position state independently. Reading from `client.get_positions()` returns the sibling live account's positions.
+- Dashboard equity formula (`cash + positions + unrealized`) requires `cash` to be HL-semantic (initial + realized − fees − exposure). Raw Coinbase `available_margin` breaks this formula.
+- **Use `available_margin + unrealized` for equity** (not `initial + daily_realized + unrealized`). The `available_margin` is actual Coinbase cash and doesn't lag. Add 5-second delay before querying post-order to let fills settle.
+
+### 2026-04-12: Dashboard P&L consistency + projection model overhaul
+
+**Equity card fix:** Switched from position-based computation (`cash + positions + unrealized`) to `equity_curve[-1]` as source of truth for the main equity metric card, drawdown, and all summary displays.
+
+**Equity source fix:** Switched trader.py from `initial + daily_realized_pnl + unrealized` to `available_margin + unrealized`. The `daily_realized_pnl` field lags behind settled cash by $20-100. `available_margin` IS the actual cash. Added 5-second post-order settlement delay before querying.
+
+**Hourly P&L chart fix:** Was computing per-hour P&L from trade-log FIFO sums (broken, double-counted fees). Switched to equity_curve deltas grouped by hour — same source as everything else.
+
+**Trade reconciliation:** Added `get_order_fill_details()` to CoinbaseClient. After each live order, trader.py now queries Coinbase for the ACTUAL `average_filled_price` and `total_fees` (with 0.5s settlement delay) and records those instead of the pre-order estimate. Reconciled all 60 existing trades against Coinbase — found fill prices off by $1-$200+ per trade.
+
+**Trade history summary bar:** Added Gross P&L / Fees / Net breakdown. Gross and Net derived from equity_curve (Coinbase ground truth), fees from sum of per-order Coinbase-settled amounts.
+
+**CB Paper independent sim:** Paper instance now has its own `_execute_paper_sim()` that computes position deltas from `sim_open_lots` and fetches live prices for fills. No longer calls `place_market_order(dry_run=True)` which was causing position accumulation. Strategy portfolio built from sim state, not shared Coinbase account.
+
+**Return projection model overhaul:** For live strategies, transaction costs (slippage, spread, fees, funding, impact) are already baked into the observed NET returns. The projection now starts from NET daily return and applies ONLY forward-looking structural assumptions (alpha decay 15%/yr, adverse regime 25%, execution miss 3%, operational risk 3%). Transaction cost sliders are available but disabled by default for live data to prevent double-counting. For paper strategies or what-if modeling, they can be re-enabled.
+
+**Fee structure confirmed from live data:**
+- Per-contract regulatory fee ($0.15) = ~4.2 bps weighted avg (BTC 2.0, SOL 3.5, ETH 6.5 bps). Does NOT dilute with scale — contracts scale proportionally with notional.
+- At $250K+ volume (~$234M/month), qualifies for Coinbase Tier 5: 0.5 bps maker / 2.0 bps taker.
+- Switching to limit orders at $500K+ drops total per-trade cost from ~9.7 bps to ~4.5 bps (51% reduction).
+
+---
+
 ## Known Risks
 
 1. **OOS overfitting:** Backtest test split blew up at current config (11.6% max DD, score -999). Paper trading has not yet seen a real stress event.

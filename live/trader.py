@@ -92,6 +92,327 @@ def save_state(state: dict, state_file: Path) -> None:
         json.dump(state, f, indent=2, default=str)
 
 
+COINBASE_FEE_BPS = 0.0003           # Per-trade notional fee component
+COINBASE_FEE_PER_CONTRACT = 0.15    # Per-trade fixed fee component
+
+
+def _model_fee(notional_usd: float, contracts: float) -> float:
+    """Coinbase futures fee model: 3 bps of notional + $0.15/contract."""
+    return abs(notional_usd) * COINBASE_FEE_BPS + abs(contracts) * COINBASE_FEE_PER_CONTRACT
+
+
+def _enrich_trade_fields(
+    state: dict, symbol: str, result, dry_run: bool
+) -> tuple[float, float, float]:
+    """
+    Compute (pnl, fee, target_pos_notional) for an incoming fill using the
+    per-symbol open-lot in state["sim_open_lots"]. Handles longs AND shorts.
+
+    sim_open_lots[symbol] = [signed_contracts, entry_price, contract_size]
+      - positive contracts = long
+      - negative contracts = short
+      - absent/zero = flat
+
+    A trade that flips direction (e.g., SELL 10 while holding +5) is split
+    into a close-5 (realize P&L) + open-short-5 (new entry).
+    """
+    sim = state.setdefault("sim_open_lots", {})
+    contracts = float(result.contracts or 0)
+    fill_price = float(result.fill_price or 0)
+    notional = float(result.notional_usd or 0)
+    cs = abs(notional) / (abs(contracts) * fill_price) if contracts and fill_price else 0.0
+
+    has_live_fills = any(
+        not t.get("dry_run", False) for t in state.get("trade_log", [])
+    )
+    is_live_instance = has_live_fills or not dry_run
+    participates = (not dry_run) if is_live_instance else True
+
+    pnl = 0.0
+    fee = _model_fee(notional, contracts) if participates else 0.0
+
+    if not participates:
+        lot = sim.get(symbol)
+        target_notional = (lot[0] * lot[2] * lot[1]) if lot else 0.0
+        return 0.0, 0.0, target_notional
+
+    existing = sim.get(symbol)  # [signed_contracts, entry, cs] or None
+    existing_contracts = existing[0] if existing else 0.0
+
+    # Compute new net position after this trade
+    new_contracts = existing_contracts + contracts
+
+    # Realize P&L on the portion being closed (direction reversal or reduction)
+    if existing and existing_contracts != 0:
+        # Closing portion = how many contracts changed direction
+        if (existing_contracts > 0 and contracts < 0) or (existing_contracts < 0 and contracts > 0):
+            close_qty = min(abs(existing_contracts), abs(contracts))
+            entry = existing[1]
+            entry_cs = existing[2] or cs
+            if existing_contracts > 0:
+                pnl = close_qty * entry_cs * (fill_price - entry)
+            else:
+                pnl = close_qty * entry_cs * (entry - fill_price)
+
+    # Update sim lot
+    if abs(new_contracts) < 1e-9:
+        sim.pop(symbol, None)
+    elif (existing_contracts > 0 and new_contracts > 0 and contracts > 0):
+        # Adding to existing long — no-op for paper sims with same target
+        if not is_live_instance and abs(existing_contracts - new_contracts) < 0.1:
+            lot = sim.get(symbol)
+            target_notional = (lot[0] * lot[2] * lot[1]) if lot else 0.0
+            return 0.0, 0.0, target_notional
+        sim[symbol] = [new_contracts, fill_price, cs]
+    elif (existing_contracts < 0 and new_contracts < 0 and contracts < 0):
+        # Adding to existing short — same no-op logic
+        if not is_live_instance and abs(existing_contracts - new_contracts) < 0.1:
+            lot = sim.get(symbol)
+            target_notional = (lot[0] * lot[2] * lot[1]) if lot else 0.0
+            return 0.0, 0.0, target_notional
+        sim[symbol] = [new_contracts, fill_price, cs]
+    else:
+        # Direction flipped or fresh open
+        sim[symbol] = [new_contracts, fill_price, cs]
+
+    lot = sim.get(symbol)
+    target_notional = (lot[0] * lot[2] * lot[1]) if lot else 0.0
+    return pnl, fee, target_notional
+
+
+def _get_total_pnl_for_live(
+    state: dict,
+    coinbase_realized: float,
+    unrealized: float,
+) -> float:
+    """
+    Returns total P&L since instance start for LIVE instances.
+
+    Coinbase's `daily_realized_pnl` from the CFM balance summary is
+    inception-to-date (not daily-resetting) and INCLUDES fees. So total
+    P&L is simply: coinbase_realized + unrealized. No rollover or fee
+    tracking needed.
+
+    Stores a snapshot for reset detection (in case Coinbase ever resets
+    the field during maintenance or settlement).
+    """
+    prev_snapshot = float(state.get("last_coinbase_realized_snapshot", 0.0))
+
+    # Reset detection: if the value jumps toward 0 while we had a large
+    # negative, Coinbase may have zeroed the field. Capture the pre-reset
+    # value as a frozen offset so we don't lose history.
+    if prev_snapshot < -10 and coinbase_realized > prev_snapshot + 50:
+        state["realized_frozen_offset"] = float(
+            state.get("realized_frozen_offset", 0.0)
+        ) + prev_snapshot
+        logger.warning(
+            "Coinbase daily_realized_pnl appears to have reset "
+            f"({prev_snapshot:.2f} → {coinbase_realized:.2f}). "
+            f"Captured offset: {state['realized_frozen_offset']:.2f}"
+        )
+
+    state["last_coinbase_realized_snapshot"] = coinbase_realized
+    frozen = float(state.get("realized_frozen_offset", 0.0))
+
+    total_pnl = frozen + coinbase_realized + unrealized
+    state["cumulative_realized_pnl_total"] = round(frozen + coinbase_realized, 4)
+    return total_pnl
+
+
+def _resync_state_post_orders(state: dict, client: "CoinbaseClient") -> None:
+    """
+    Refresh state from Coinbase *after* any new orders land, using HL-compatible
+    semantics:
+
+      cash = initial_equity + cum_realized − cum_fees − Σ positions
+      equity = cash + Σ positions + unrealized
+             = initial_equity + cum_realized − cum_fees + unrealized
+
+    Writing `cash` this way means the dashboard's generic formula
+    (`cash + positions + unrealized`) yields the right equity for both HL paper
+    and CB instances without special-casing. Cumulative tracking survives
+    the UTC midnight daily_* reset.
+    """
+    try:
+        positions = client.get_positions()
+        coinbase_daily_realized = client.get_daily_realized_pnl()
+        coinbase_daily_fees = client.get_daily_total_fees()
+    except Exception as e:
+        logger.warning("Post-order state resync failed; state may be one tick stale: %s", e)
+        return
+
+    has_live_fills = any(
+        not t.get("dry_run", False) for t in state.get("trade_log", [])
+    )
+    initial_equity = float(state.get("initial_equity") or STARTING_CAPITAL)
+
+    if has_live_fills:
+        # --- LIVE instance ---
+        # Use available_margin (actual Coinbase cash) + unrealized as equity.
+        # This is the real account value — no lag from daily_realized_pnl.
+        pos_notionals = {sym: p.notional_usd for sym, p in positions.items()}
+        total_exposure = sum(abs(v) for v in pos_notionals.values())
+        unrealized_sum = sum(p.unrealized_pnl_usd for p in positions.values())
+        entry_prices = {sym: p.entry_price for sym, p in positions.items()}
+
+        try:
+            available_margin = client.get_cash_balance_usd()
+        except Exception:
+            available_margin = initial_equity
+        equity = available_margin + unrealized_sum
+        state["cumulative_realized_pnl_total"] = round(
+            available_margin - initial_equity, 4
+        )
+    else:
+        # --- PAPER instance ---
+        # Uses own sim_open_lots for positions; sums enriched pnl/fee from
+        # the trade log for realized; fetches live prices for unrealized.
+        sim_lots = state.get("sim_open_lots", {}) or {}
+        pos_notionals = {}
+        entry_prices = {}
+        for sym, lot in sim_lots.items():
+            oc, oe, ocs = lot
+            if abs(oc) > 1e-12:
+                pos_notionals[sym] = round(oc * ocs * oe, 4)
+                entry_prices[sym] = round(oe, 6)
+        total_exposure = sum(abs(v) for v in pos_notionals.values())
+        unrealized_sum = 0.0
+        for sym, lot in sim_lots.items():
+            try:
+                mark = float(client.fetch_current_price(sym))
+            except Exception:
+                mark = 0.0
+            if mark > 0 and lot[1] > 0:
+                sign = 1.0 if lot[0] > 0 else -1.0
+                unrealized_sum += sign * abs(lot[0]) * lot[2] * (mark - lot[1])
+
+        sim_realized = sum(float(t.get("pnl") or 0) for t in state.get("trade_log", []))
+        sim_fees = sum(float(t.get("fee") or 0) for t in state.get("trade_log", []))
+        equity = initial_equity + sim_realized - sim_fees + unrealized_sum
+        state["cumulative_realized_pnl_total"] = round(sim_realized, 4)
+        state["cumulative_fees_total"] = round(sim_fees, 4)
+
+    virtual_cash = equity - total_exposure - unrealized_sum
+    state["cash"] = round(virtual_cash, 4)
+    state["positions"] = pos_notionals
+    state["entry_prices"] = entry_prices
+    state["daily_price_pnl"] = round(coinbase_daily_realized, 4)
+    state["daily_fees"] = round(coinbase_daily_fees, 4)
+    state["daily_total_pnl"] = round(coinbase_daily_realized - coinbase_daily_fees, 4)
+
+    now_ms = int(time.time() * 1000)
+    state["equity_curve"].append({"ts": now_ms, "equity": round(equity, 4)})
+    if equity > float(state.get("peak_equity") or 0):
+        state["peak_equity"] = round(equity, 4)
+
+
+def _execute_paper_sim(
+    state: dict,
+    client: "CoinbaseClient",
+    symbol: str,
+    target_notional: float,
+    now_ms: int,
+) -> dict | None:
+    """
+    Paper-sim order execution: compute the delta between sim_open_lots and
+    the strategy's target, fetch a live price from Coinbase for the fill,
+    update sim_open_lots, and return an HL-compatible trade record.
+
+    Returns None if the sim is already at target (SKIP).
+    """
+    sim = state.setdefault("sim_open_lots", {})
+    existing = sim.get(symbol)  # [signed_contracts, entry_price, contract_size]
+
+    # Derive contract size from existing lot or standard defaults
+    if existing:
+        cs = existing[2]
+    else:
+        cs = {"BTC": 0.01, "ETH": 0.1, "SOL": 5.0}.get(symbol, 1.0)
+
+    # Current sim position in notional USD (signed: positive=long, negative=short)
+    current_notional = 0.0
+    current_contracts = 0.0
+    if existing:
+        current_contracts = existing[0]
+        current_notional = existing[0] * existing[2] * existing[1]
+
+    # Target notional is signed: positive=long, negative=short, 0=flat
+    delta_notional = target_notional - current_notional
+
+    # Skip if delta is negligible (< $10)
+    if abs(delta_notional) < 10:
+        logger.info("%s: paper sim already at target (%.0f ≈ %.0f), skip",
+                    symbol, current_notional, target_notional)
+        return None
+
+    # Fetch current price for the simulated fill
+    try:
+        fill_price = client.fetch_current_price(symbol)
+    except Exception as e:
+        logger.warning("Paper sim: failed to fetch price for %s: %s", symbol, e)
+        return None
+
+    if fill_price <= 0:
+        return None
+
+    # Compute contracts for the delta
+    delta_contracts = delta_notional / (cs * fill_price)
+    delta_notional_exact = delta_contracts * cs * fill_price
+
+    # Compute realized P&L on the closing portion
+    pnl = 0.0
+    if existing and current_contracts != 0:
+        # Are we reducing or flipping?
+        if (current_contracts > 0 and delta_contracts < 0) or \
+           (current_contracts < 0 and delta_contracts > 0):
+            close_contracts = min(abs(current_contracts), abs(delta_contracts))
+            entry_price = existing[1]
+            if current_contracts > 0:
+                pnl = close_contracts * cs * (fill_price - entry_price)
+            else:
+                pnl = close_contracts * cs * (entry_price - fill_price)
+
+    # Fee model
+    fee = _model_fee(abs(delta_notional_exact), abs(delta_contracts))
+
+    # Update sim_open_lots to reflect new target
+    new_contracts = current_contracts + delta_contracts
+    if abs(new_contracts) < 1e-9:
+        sim.pop(symbol, None)
+    else:
+        sim[symbol] = [new_contracts, fill_price, cs]
+
+    # Determine action label
+    if abs(target_notional) < 1 and abs(current_notional) > 1:
+        action = "CLOSE"
+    elif abs(current_notional) < 1:
+        action = "OPEN_LONG" if target_notional > 0 else "OPEN_SHORT"
+    else:
+        action = "MODIFY"
+
+    # HL-compatible target_pos (notional at new entry)
+    lot = sim.get(symbol)
+    target_pos = (lot[0] * lot[2] * lot[1]) if lot else 0.0
+
+    return {
+        "ts": now_ms,
+        "time": datetime.now(timezone.utc).isoformat(),
+        "symbol": symbol,
+        "action": action,
+        "price": round(fill_price, 6),
+        "size": round(delta_notional_exact, 4),
+        "target_pos": round(target_pos, 2),
+        "pnl": round(pnl, 4),
+        "fee": round(fee, 4),
+        "contracts": round(delta_contracts, 8),
+        "notional_usd": round(abs(delta_notional_exact), 4),
+        "fill_price": round(fill_price, 6),
+        "fee_usd": 0.0,
+        "order_id": "PAPER_SIM",
+        "dry_run": True,
+    }
+
+
 def log_trade(trade: dict, logs_dir: Path) -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -131,7 +452,6 @@ def run_one_tick(
 
     # --- 1. Fetch live account state from Coinbase ---
     try:
-        equity = client.get_equity_usd()
         cash = client.get_cash_balance_usd()
         positions = client.get_positions()
         # NOTE: get_daily_total_pnl includes fees (daily_realized_pnl - total_fees).
@@ -145,6 +465,10 @@ def run_one_tick(
         logger.error("Failed to fetch account state from Coinbase: %s", e)
         risk_mgr.alerts.warning(f"Account fetch failed: {e}")
         return state
+
+    # Use available_margin (actual Coinbase cash) + unrealized for equity.
+    unrealized_sum = sum(p.unrealized_pnl_usd for p in positions.values())
+    equity = cash + unrealized_sum
 
     # Use the complete P&L (including fees) for risk monitoring
     daily_pnl = daily_total_pnl
@@ -176,33 +500,64 @@ def run_one_tick(
         position_snapshots=pos_snaps,
     )
 
-    # Track equity curve
-    state["equity_curve"].append({"ts": now_ms, "equity": equity})
-    if equity > state["peak_equity"]:
-        state["peak_equity"] = equity
-
-    # Update dashboard-compatible fields with latest snapshot from Coinbase
-    state["cash"] = cash
-    state["positions"] = pos_notionals
-    state["entry_prices"] = {sym: p.entry_price for sym, p in positions.items()}
-    state["daily_price_pnl"] = daily_price_pnl
-    state["daily_fees"] = daily_fees
-    state["daily_total_pnl"] = daily_total_pnl
+    # NOTE: Dashboard-visible state (cash/positions/equity_curve) is written at
+    # the END of the tick via _resync_state_post_orders(), after any new fills
+    # have settled on Coinbase. Writing here would snapshot the pre-tick view
+    # and the saved state file would always lag one tick behind reality (e.g.
+    # showing positions={} right after a BUY because we queried *before* the
+    # order was placed).
 
     # --- 4. Check if risk manager has halted us ---
     if risk_mgr.halted:
         logger.error("Risk manager HALTED: %s", risk_mgr.halt_reason)
         return state
 
-    # --- 5. Fetch candles for strategy ---
-    entry_prices = {sym: p.entry_price for sym, p in positions.items()}
-    portfolio = PortfolioState(
-        cash=cash,
-        positions=pos_notionals,
-        entry_prices=entry_prices,
-        equity=equity,
-        timestamp=now_ms,
-    )
+    # --- 5. Build portfolio state for strategy ---
+    # Live instances: strategy sees real Coinbase positions.
+    # Paper instances: strategy sees its OWN simulated positions from
+    # sim_open_lots so it makes decisions independent of the sibling
+    # live account that shares the same Coinbase credentials.
+    if dry_run:
+        sim_lots = state.get("sim_open_lots") or {}
+        sim_pos = {}
+        sim_entries = {}
+        for sym, lot in sim_lots.items():
+            oc, oe, ocs = lot
+            if oc > 1e-12:
+                sim_pos[sym] = round(oc * ocs * oe, 4)
+                sim_entries[sym] = oe
+        sim_exposure = sum(abs(v) for v in sim_pos.values())
+        sim_equity = initial_equity_stored + float(
+            state.get("cumulative_realized_pnl_total", 0.0)
+        ) - float(state.get("cumulative_fees_total", 0.0))
+        # Add unrealized from current prices vs sim entries
+        for sym, lot in sim_lots.items():
+            try:
+                mark = client.fetch_current_price(sym)
+                sim_equity += (mark - lot[1]) * lot[0] * lot[2]
+            except Exception:
+                pass
+        sim_cash = sim_equity - sim_exposure
+        portfolio = PortfolioState(
+            cash=sim_cash,
+            positions=sim_pos,
+            entry_prices=sim_entries,
+            equity=sim_equity,
+            timestamp=now_ms,
+        )
+        logger.info(
+            f"Paper sim state: equity=${sim_equity:,.2f} positions={sim_pos} "
+            f"entries={sim_entries}"
+        )
+    else:
+        entry_prices = {sym: p.entry_price for sym, p in positions.items()}
+        portfolio = PortfolioState(
+            cash=cash,
+            positions=pos_notionals,
+            entry_prices=entry_prices,
+            equity=equity,
+            timestamp=now_ms,
+        )
 
     bar_data: dict[str, BarData] = {}
     for symbol in symbols:
@@ -289,61 +644,107 @@ def run_one_tick(
 
         effective_target = verdict.target_notional if verdict.target_notional is not None else target
 
-        # Place the order (dry_run flag propagates to exchange client)
-        try:
-            result = client.place_market_order(
-                symbol=symbol,
-                target_notional_usd=effective_target,
-                dry_run=dry_run,
+        if dry_run:
+            # --- PAPER SIM: compute delta from sim_open_lots directly ---
+            # Don't call place_market_order (which doesn't know sim state
+            # and would return the full order size, causing accumulation).
+            trade_record = _execute_paper_sim(
+                state, client, symbol, effective_target, now_ms
             )
-        except Exception as e:
-            logger.error("Order placement exception: %s", e, exc_info=True)
-            risk_mgr.alerts.order_error(f"Order exception: {e}", symbol=symbol)
-            continue
+            if trade_record is None:
+                continue
+        else:
+            # --- LIVE: place real order on Coinbase ---
+            try:
+                result = client.place_market_order(
+                    symbol=symbol,
+                    target_notional_usd=effective_target,
+                    dry_run=False,
+                )
+            except Exception as e:
+                logger.error("Order placement exception: %s", e, exc_info=True)
+                risk_mgr.alerts.order_error(f"Order exception: {e}", symbol=symbol)
+                continue
 
-        if not result.success:
-            logger.error("Order failed: %s — %s", symbol, result.error_message)
-            risk_mgr.alerts.order_error(
-                f"Order failed: {result.error_message}",
-                symbol=symbol,
-                target=effective_target,
+            if not result.success:
+                logger.error("Order failed: %s — %s", symbol, result.error_message)
+                risk_mgr.alerts.order_error(
+                    f"Order failed: {result.error_message}",
+                    symbol=symbol,
+                    target=effective_target,
+                )
+                continue
+
+            if result.side == "SKIP":
+                logger.info("%s: already at target, skip", symbol)
+                continue
+
+            # --- Reconciliation: get ACTUAL fill details from Coinbase ---
+            # place_market_order uses the pre-order price as fill_price.
+            # The real execution price and fee come from get_order() after
+            # the fill settles. This closes the gap between "what we
+            # recorded" and "what actually happened."
+            actual_price = result.fill_price
+            actual_fee = 0.0
+            actual_contracts = abs(result.contracts)
+            if result.order_id:
+                time.sleep(0.5)  # brief pause for Coinbase settlement
+                ap, af, ac = client.get_order_fill_details(result.order_id)
+                if ap > 0:
+                    actual_price = ap
+                    logger.info(
+                        f"Reconciled {symbol}: price ${result.fill_price:,.2f} → "
+                        f"${ap:,.2f}, fee ${af:.4f}"
+                    )
+                if af > 0:
+                    actual_fee = af
+                if ac > 0:
+                    actual_contracts = ac
+
+            # Compute notional from ACTUAL fill price
+            spec = client._product_specs.get(symbol)
+            cs = spec.contract_size if spec else 0.01
+            actual_notional = actual_contracts * cs * actual_price
+            signed_notional = actual_notional if result.contracts >= 0 else -actual_notional
+
+            # Use actual price for FIFO P&L enrichment
+            result.fill_price = actual_price
+            result.notional_usd = signed_notional
+            result.fee_usd = actual_fee
+
+            trade_pnl, _, target_notional = _enrich_trade_fields(
+                state, symbol, result, dry_run
             )
-            continue
 
-        if result.side == "SKIP":
-            logger.info("%s: already at target, skip", symbol)
-            continue
+            trade_record = {
+                "ts": now_ms,
+                "time": datetime.now(timezone.utc).isoformat(),
+                "symbol": symbol,
+                "action": f"{result.side}_LIVE",
+                "price": round(actual_price, 6),
+                "size": round(signed_notional, 4),
+                "target_pos": round(target_notional, 2),
+                "pnl": round(trade_pnl, 4),
+                "fee": round(actual_fee, 4),
+                "contracts": result.contracts,
+                "notional_usd": round(abs(signed_notional), 4),
+                "fill_price": round(actual_price, 6),
+                "fee_usd": round(actual_fee, 4),
+                "order_id": result.order_id,
+                "dry_run": False,
+            }
 
-        # Record the trade
-        trade_record = {
-            "ts": now_ms,
-            "time": datetime.now(timezone.utc).isoformat(),
-            "symbol": symbol,
-            "action": f"{result.side}_LIVE" if not dry_run else f"{result.side}_DRYRUN",
-            "contracts": result.contracts,
-            "notional_usd": result.notional_usd,
-            "fill_price": result.fill_price,
-            "fee_usd": result.fee_usd,
-            "order_id": result.order_id,
-            "dry_run": dry_run,
-        }
         state["trade_log"].append(trade_record)
         log_trade(trade_record, PROJECT_ROOT / "live" / "logs")
 
-        risk_mgr.alerts.trade(
-            f"{result.side} {symbol} {abs(result.contracts)} contracts @ ${result.fill_price:,.2f}",
-            symbol=symbol,
-            side=result.side,
-            contracts=abs(result.contracts),
-            notional_usd=f"${abs(result.notional_usd):,.2f}",
-            fill_price=f"${result.fill_price:,.2f}",
-            dry_run=dry_run,
-        )
-
-        dry_tag = " [DRY RUN]" if dry_run else ""
+        side_label = trade_record["action"].split("_")[0]
+        contracts_val = abs(trade_record.get("contracts", 0))
+        price_val = trade_record.get("price", 0)
+        notional_val = abs(trade_record.get("notional_usd", trade_record.get("size", 0)))
+        tag = " [DRY RUN]" if dry_run else ""
         logger.info(
-            f"{result.side} {symbol} {abs(result.contracts)} contracts "
-            f"(${result.notional_usd:+,.2f} notional) @ ${result.fill_price:,.2f}{dry_tag}"
+            f"{side_label} {symbol} {contracts_val} contracts "
+            f"(${notional_val:+,.2f} notional) @ ${price_val:,.2f}{tag}"
         )
 
     return state
@@ -495,6 +896,11 @@ def main():
             state = run_one_tick(strategy, client, risk_mgr, state,
                                  args.symbols, args.interval, dry_run)
         finally:
+            # Wait for Coinbase to settle fills into the cash balance before
+            # querying. Without this delay, available_margin reads a mid-
+            # settlement value that's $20-30 below the fully-settled number.
+            time.sleep(5)
+            _resync_state_post_orders(state, client)
             save_state(state, state_file)
             risk_mgr.stop()
         return
@@ -507,6 +913,7 @@ def main():
             try:
                 state = run_one_tick(strategy, client, risk_mgr, state,
                                      args.symbols, args.interval, dry_run)
+                _resync_state_post_orders(state, client)
                 save_state(state, state_file)
             except Exception as e:
                 logger.error("Tick error: %s", e, exc_info=True)
@@ -516,6 +923,7 @@ def main():
         logger.info("Interrupted by user")
     finally:
         risk_mgr.stop()
+        _resync_state_post_orders(state, client)
         save_state(state, state_file)
 
 
