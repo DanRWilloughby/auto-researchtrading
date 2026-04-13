@@ -1,0 +1,21 @@
+Can you backtest with just BTC and with BTC and ETH compared to all three.  The thought is SOL has high fee drag currently and there should be a lot of correlation. but equally we lose volume so it probably will not outperform.
+
+---
+
+should we test this with more coins then?  what about some that are not correlated as strongly?  could we look at adding XRP in which has more volume than SOL?  see if this improves it or not?
+
+---
+
+did we test take profit thresholds historically
+
+---
+
+yeah why not
+
+---
+
+what about profit though.
+
+---
+
+can you summarize this so I can give this feedback to the other agent to add to the docs as somethign we could further optimzie
