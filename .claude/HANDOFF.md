@@ -1,38 +1,46 @@
-# Session Handoff - 2026-04-10
+# Session Handoff - 2026-04-13
 
 ## What We Did
-- Built a complete equity momentum strategy (`strategies/1h-equities/`) trading 10 non-correlated ETFs (SPY, QQQ, IWM, XLE, XLF, GLD, TLT, EEM, XBI, SOXX) on 1h bars
-- Created equity data pipeline (`engine/equity_data.py`) using yfinance — downloaded ~5,000 bars per ticker covering Jun 2023 to Apr 2026
-- Ran 133 logged experiments across 11 parameter dimensions via automated sweep runner (`engine/sweep.py`)
-- Optimized from baseline (score 774) to optimized (score 1,512 OOS) — only kept high-impact changes (HTF params, ATR stop, RSI exhaustion, MIN_VOTES)
-- Built deep validation suite (`engine/validate.py`): regime testing (11/11 profitable), walk-forward (11/11 windows), correlation analysis, drawdown stress test, Monte Carlo
-- Added realistic execution features to `engine/prepare.py`: 1-bar delayed execution, short borrow costs, EOD flatten
-- Validated under realistic execution: OOS still 4,932% return, 9.3% DD, Sharpe 23.26, ~1.08% daily
-- Wrote formal thesis report (`EQUITY-MOMENTUM-STRATEGY-REPORT.md`) ready for sharing
-- Added `--equity` mode to `paper/trader.py` — yfinance data, market hours check, equity cost model
-- Deployed equity paper trader to VM cron: `7 14-20 * * 1-5` (hourly during US market hours)
-- Added "Deep Validation" tab to the Vercel dashboard with regime charts, walk-forward bars, correlation, execution reality check, Monte Carlo, per-symbol PnL
-- Fixed dashboard sync script to copy `*.json` from strategy directories (was only copying .tsv/.csv/.jsonl)
+
+### Coinbase Backtest Infrastructure
+- Added `--source coinbase` to backtest pipeline — downloads candles from CB perps API, stores as separate parquet files, defaults to 3bps taker fee
+- CB baseline backtest: Sharpe 26.11, win rate 73.2% — params transfer well from HL (23.8 on same test split)
+
+### Conviction Analysis
+- Added signal metadata (vote counts) to trade records
+- 4/5 votes is the sweet spot ($18,751 avg net), 5/5 underperforms (late-to-the-party effect)
+- Hybrid maker/taker routing NOT viable — all conviction levels carry positive EV
+
+### Fee-Reduction Variants
+- 1h candles: best fee efficiency (12.6% fee/gross) but 30m wins on compounding (700x vs 220x over 165 days, 4.05%/day vs 3.32%/day)
+- MIN_VOTES=4: hurt more than helped (lost alpha > fee savings)
+- No-trade 02-08 UTC: worst performer (forced closes created churn)
+- **Decision: stay on 30m, eat the fees — compounding advantage dominates**
+
+### Dual-Feed Strategies (HL + CB combined)
+- Consensus (both agree): -$12.9M vs baseline, over-filters
+- 10-vote pool 7/10: catastrophic (-$48.6M), too restrictive
+- 10-vote pool 6/10: near-parity (-$6.3M), mostly recreates baseline
+- HL signal, CB exec: best variant (win rate 73.5%, PF 8.53) but still -$3.4M
+- **None beat the single-feed CB baseline. The directional disagreement between exchanges is signal, not noise.**
 
 ## Current State
-- **Dashboard live:** https://dashboard-green-nu-53.vercel.app — select "1h EQUITIES" dropdown, "Deep Validation" tab
-- **Paper trading live:** VM cron at :07 past each hour during market hours, alongside crypto strategies
-- **Auto-sync:** Hourly cron pulls VM data and redeploys Vercel when changed
-- Strategy optimized + validated across 3 splits, 11 regimes, 11 walk-forward windows
-- Alpha is overwhelmingly from overnight holds (overnight momentum strategy)
-- Dashboard source is in `overnight-lab/projects/2026-03-22_autoresearch-trading-dashboard/dashboard/` (NOT in this repo)
-
-## Pending / Not Yet Tested
-- [ ] Paper trading needs 20+ trading days of data before evaluation
-- [ ] Actual short borrow rate verification (assumed 5% flat, real rates vary)
-- [ ] Market impact at scale (tested at $100K; may not work above $500K on XBI/EEM)
-- [ ] Overnight gap P&L attribution per-event
-- [ ] Cron timing: consider moving from :07 to :03 for tighter execution (risk: yfinance candle not ready)
+- All code committed and pushed to `autotrader/30m-exp1` (2 commits)
+- Live strategy on Coinbase is UNCHANGED (30m, current parameters, single-feed)
+- Four research reports in `strategies/30m-concentrated/`:
+  - `COINBASE_BACKTEST_REPORT.md` — CB vs HL comparison
+  - `CONVICTION_ANALYSIS_REPORT.md` — vote count vs return
+  - `FEE_REDUCTION_REPORT.md` — 3 fee variants
+  - `DUAL_FEED_REPORT.md` — 3 dual-feed variants
+- Analysis scripts in `scripts/`: `analyze_conviction.py`, `compare_fee_variants.py`
+- Strategy variants created (for reference, not live use): `strategy_min4.py`, `strategy_notrade_hours.py`, `strategy_consensus.py`, `strategy_10vote.py`, `strategy_hl_signal.py`
+- Shared dual-feed infra: `dual_feed_loader.py`, `dual_feed_helpers.py`
 
 ## Next Steps
-- [ ] Monitor paper trading for 20+ days, compare equity curve to backtest
-- [ ] If tracking error < 2% daily, deploy micro-live ($1K-5K) on Alpaca
-- [ ] Consider running at 2x leverage initially (standard margin) before scaling to 3x (portfolio margin)
+- [ ] Monitor live CB P&L over coming weeks to validate backtest findings
+- [ ] Negotiate better taker rates with Coinbase as volume scales
+- [ ] Investigate cross-exchange disagreement as a *signal* (when HL bullish + CB flat → CB catch-up?)
+- [ ] Position sizing by conviction (larger at 4/5, smaller at 5/5) as research thread
 
 ## Quick Context
-Built and fully validated a 10-ETF equity momentum strategy. 133 experiments, 11/11 regimes profitable, 100% walk-forward consistency. Realistic execution (1-bar delay + short borrow): ~1.08% daily, 9.3% DD, Sharpe 23.26. Paper trading live on VM, dashboard live on Vercel with Deep Validation tab. Dashboard sync script fixed to handle JSON files. Next milestone: 20 days of paper data to evaluate.
+Comprehensive research session: CB backtest validates params, conviction analysis shows non-monotonic pattern, fee reduction analysis proves compounding > fee savings, dual-feed analysis proves single-feed is optimal. The strategy is well-tuned — the winning move is to stay on 30m single-feed CB and let it compound. No changes to live needed.
