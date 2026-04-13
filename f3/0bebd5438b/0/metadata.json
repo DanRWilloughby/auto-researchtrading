@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "f30bebd5438b",
+  "session_id": "c106d67f-cf4d-4af2-92f2-ef5a017e52fd",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-13T15:14:23.697364Z",
+  "branch": "autotrader/30m-exp1",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "strategies/30m-concentrated/strategy_consensus.py",
+    "strategies/30m-concentrated/strategy_hl_signal.py",
+    "strategies/30m-concentrated/DUAL_FEED_REPORT.md",
+    "strategies/30m-concentrated/dual_feed_helpers.py",
+    "strategies/30m-concentrated/dual_feed_loader.py",
+    "strategies/30m-concentrated/results.tsv",
+    "strategies/30m-concentrated/strategy_10vote.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-6[1m]",
+  "turn_id": "aeffafa1ff11",
+  "checkpoint_transcript_start": 340,
+  "transcript_lines_at_start": 340,
+  "token_usage": {
+    "input_tokens": 22,
+    "cache_creation_tokens": 154825,
+    "cache_read_tokens": 2963578,
+    "output_tokens": 19056,
+    "api_call_count": 21
+  },
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-13T15:14:23.151497Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 771,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 771,
+    "total_lines_changed": 771,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}

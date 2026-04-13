@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "f30bebd5438b",
+  "strategy": "manual-commit",
+  "branch": "autotrader/30m-exp1",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "strategies/30m-concentrated/DUAL_FEED_REPORT.md",
+    "strategies/30m-concentrated/dual_feed_helpers.py",
+    "strategies/30m-concentrated/dual_feed_loader.py",
+    "strategies/30m-concentrated/results.tsv",
+    "strategies/30m-concentrated/strategy_10vote.py",
+    "strategies/30m-concentrated/strategy_consensus.py",
+    "strategies/30m-concentrated/strategy_hl_signal.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f3/0bebd5438b/0/metadata.json",
+      "transcript": "/f3/0bebd5438b/0/full.jsonl",
+      "content_hash": "/f3/0bebd5438b/0/content_hash.txt",
+      "prompt": "/f3/0bebd5438b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22,
+    "cache_creation_tokens": 154825,
+    "cache_read_tokens": 2963578,
+    "output_tokens": 19056,
+    "api_call_count": 21
+  }
+}
