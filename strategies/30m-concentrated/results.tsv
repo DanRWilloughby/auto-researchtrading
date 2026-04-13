@@ -91,3 +91,7 @@ hl-test-baseline	test	-41548.03	23.82	3689344.5	3.9971	19393	73.5	8.95	BTC/ETH/S
 cb-1h-baseline	test	-213.20	20.02	21865.3	3.8019	5624	73.5	9.32	BTC/ETH/SOL	2026-04-12	Same strategy on 1h candles, CB data. Testing fee reduction via lower frequency.
 cb-min-votes-4	test	-242.31	21.30	16031.1	2.7066	8211	68.1	6.06	BTC/ETH/SOL	2026-04-12	MIN_VOTES raised from 3 to 4. Testing if skipping weak signals improves net after fees.
 cb-no-trade-0200-0800	test	-190.34	20.96	10897.5	3.3702	8634	71.1	5.46	BTC/ETH/SOL	2026-04-12	Skip trading 02:00-08:00 UTC. Close positions at 02:00, resume at 08:00.
+cb-consensus	test	-993.52	25.23	57014.7	4.2026	10450	72.6	8.00	BTC/ETH/SOL	2026-04-13	Dual-feed consensus: enter only when both HL and CB agree
+cb-10vote-7min	test	-317.86	22.11	21249.3	2.7066	8584	69.4	6.72	BTC/ETH/SOL	2026-04-13	Dual-feed 10-vote pool: require 7/10 to enter
+cb-10vote-6min	test	-1111.16	25.87	63603.7	4.1536	10750	72.9	8.18	BTC/ETH/SOL	2026-04-13	Dual-feed 10-vote pool: require 6/10 to enter (more aggressive)
+cb-hl-signal	test	-1188.67	25.60	66534.5	4.2026	10912	73.5	8.53	BTC/ETH/SOL	2026-04-13	HL candles for signal generation, CB for execution and P&L
