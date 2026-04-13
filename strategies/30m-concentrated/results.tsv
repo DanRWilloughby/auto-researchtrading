@@ -95,3 +95,39 @@ cb-consensus	test	-993.52	25.23	57014.7	4.2026	10450	72.6	8.00	BTC/ETH/SOL	2026-
 cb-10vote-7min	test	-317.86	22.11	21249.3	2.7066	8584	69.4	6.72	BTC/ETH/SOL	2026-04-13	Dual-feed 10-vote pool: require 7/10 to enter
 cb-10vote-6min	test	-1111.16	25.87	63603.7	4.1536	10750	72.9	8.18	BTC/ETH/SOL	2026-04-13	Dual-feed 10-vote pool: require 6/10 to enter (more aggressive)
 cb-hl-signal	test	-1188.67	25.60	66534.5	4.2026	10912	73.5	8.53	BTC/ETH/SOL	2026-04-13	HL candles for signal generation, CB for execution and P&L
+btc-only	val	-2.52	14.09	1101.8	3.5500	6455	73.9	7.72	BTC	2026-04-13	BTC only — testing fee drag hypothesis
+btc-only	test	4.25	11.90	398.6	1.2759	6114	72.6	8.13	BTC	2026-04-13	BTC only — testing fee drag hypothesis
+btc-eth	val	-797.41	20.69	73278.3	2.5652	12992	74.8	9.01	BTC/ETH	2026-04-13	BTC+ETH only — drop SOL fee drag
+btc-eth	test	-317.87	19.42	26975.9	2.8865	12597	73.1	8.82	BTC/ETH	2026-04-13	BTC+ETH only — drop SOL fee drag
+btc-eth-sol-baseline	val	-339346.78	26.32	34218417.3	4.1908	19814	74.9	7.92	BTC/ETH/SOL	2026-04-13	Full 3-asset baseline for comparison
+btc-eth-sol-baseline	test	-41548.03	23.82	3689344.5	3.9971	19393	73.5	8.95	BTC/ETH/SOL	2026-04-13	Full 3-asset baseline for comparison
+btc-eth-sol-xrp	val	-339346.78	26.32	34218417.3	4.1908	19814	74.9	7.92	BTC/ETH/SOL	2026-04-13	Add XRP to base 3 — testing diversification benefit
+btc-eth-sol-xrp	test	-41548.03	23.82	3689344.5	3.9971	19393	73.5	8.95	BTC/ETH/SOL/XRP	2026-04-13	Add XRP to base 3 — testing diversification benefit
+btc-eth-xrp	val	-797.41	20.69	73278.3	2.5652	12992	74.8	9.01	BTC/ETH	2026-04-13	Swap SOL for XRP — less correlated alt
+btc-eth-xrp	test	-317.87	19.42	26975.9	2.8865	12597	73.1	8.82	BTC/ETH/XRP	2026-04-13	Swap SOL for XRP — less correlated alt
+all-8-symbols	val	-339346.78	26.32	34218417.3	4.1908	19814	74.9	7.92	AVAX/BTC/DOGE/ETH/LINK/SOL	2026-04-13	Full 8-symbol suite — BTC ETH SOL XRP SUI DOGE AVAX LINK
+all-8-symbols	test	-41548.03	23.82	3689344.5	3.9971	19393	73.5	8.95	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-04-13	Full 8-symbol suite — BTC ETH SOL XRP SUI DOGE AVAX LINK
+btc-eth-sol-xrp-v2	val	-339346.78	26.32	34218417.3	4.1908	19814	74.9	7.92	BTC/ETH/SOL	2026-04-13	4 assets with dynamic symbols — add XRP to base 3
+btc-eth-sol-xrp-v2	test	-49841.26	23.87	4149729.3	3.9971	19870	73.4	8.59	BTC/ETH/SOL/XRP	2026-04-13	4 assets with dynamic symbols — add XRP to base 3
+btc-eth-xrp-v2	val	-797.41	20.69	73278.3	2.5652	12992	74.8	9.01	BTC/ETH	2026-04-13	Swap SOL for XRP — less correlated alt
+btc-eth-xrp-v2	test	-402.78	19.60	31620.3	2.8865	13074	73.0	8.36	BTC/ETH/XRP	2026-04-13	Swap SOL for XRP — less correlated alt
+btc-eth-sol-dynamic	val	-339346.78	26.32	34218417.3	4.1908	19814	74.9	7.92	BTC/ETH/SOL	2026-04-13	Baseline re-run with dynamic symbols to confirm parity
+btc-eth-sol-dynamic	test	-41548.03	23.82	3689344.5	3.9971	19393	73.5	8.95	BTC/ETH/SOL	2026-04-13	Baseline re-run with dynamic symbols to confirm parity
+all-8-dynamic	val	-11485115673.13	31.94	1274156601554.5	6.9414	40349	75.1	8.76	AVAX/BTC/DOGE/ETH/LINK/SOL	2026-04-13	Full 8-symbol with dynamic symbols
+all-8-dynamic	test	-171165789.38	28.68	13504249420.2	5.9247	41301	70.9	7.11	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-04-13	Full 8-symbol with dynamic symbols
+tp08-size120	val	-334554.01	26.36	33625206.2	4.1908	20050	74.9	8.00	BTC/ETH/SOL	2026-04-13	TP=0.8% at deployed size 1.20
+tp08-size120	test	-49186.01	24.23	4357487.0	3.8600	19657	73.7	8.90	BTC/ETH/SOL	2026-04-13	TP=0.8% at deployed size 1.20
+tp09-size120	val	-330481.08	26.42	33065545.4	4.1908	19948	74.9	7.87	BTC/ETH/SOL	2026-04-13	TP=0.9% at deployed size 1.20
+tp09-size120	test	-46773.35	24.18	4172089.4	3.9971	19563	73.6	8.97	BTC/ETH/SOL	2026-04-13	TP=0.9% at deployed size 1.20
+tp10-size120	val	-319418.40	26.31	32113203.5	4.1908	19887	74.8	7.91	BTC/ETH/SOL	2026-04-13	TP=1.0% at deployed size 1.20
+tp10-size120	test	-43688.76	24.03	3893558.3	3.9971	19511	73.6	8.98	BTC/ETH/SOL	2026-04-13	TP=1.0% at deployed size 1.20
+tp11-size120	val	-333803.01	26.41	33593890.8	4.1908	19853	74.9	7.88	BTC/ETH/SOL	2026-04-13	TP=1.1% at deployed size 1.20
+tp11-size120	test	-42508.35	23.93	3777731.1	3.9971	19446	73.5	8.94	BTC/ETH/SOL	2026-04-13	TP=1.1% at deployed size 1.20
+tp13-size120	val	-339611.11	26.29	34312534.2	4.1908	19781	75.0	7.93	BTC/ETH/SOL	2026-04-13	TP=1.3% at deployed size 1.20
+tp13-size120	test	-39907.35	23.75	3531916.8	3.9971	19370	73.5	8.89	BTC/ETH/SOL	2026-04-13	TP=1.3% at deployed size 1.20
+tp15-size120	val	-347266.16	26.32	35606533.4	4.1908	19728	74.9	8.15	BTC/ETH/SOL	2026-04-13	TP=1.5% at deployed size 1.20
+tp15-size120	test	-39179.41	23.66	3471496.2	3.9971	19338	73.5	8.91	BTC/ETH/SOL	2026-04-13	TP=1.5% at deployed size 1.20
+tp18-size120	val	-336627.99	26.20	34496870.0	4.1908	19710	74.8	8.07	BTC/ETH/SOL	2026-04-13	TP=1.8% at deployed size 1.20
+tp18-size120	test	-38159.99	23.62	3370731.2	3.9971	19309	73.5	8.84	BTC/ETH/SOL	2026-04-13	TP=1.8% at deployed size 1.20
+tp20-size120	val	-338579.82	26.22	34978760.1	4.1908	19697	74.9	8.35	BTC/ETH/SOL	2026-04-13	TP=2.0% at deployed size 1.20
+tp20-size120	test	-37940.93	23.60	3353383.5	3.9971	19303	73.5	8.86	BTC/ETH/SOL	2026-04-13	TP=2.0% at deployed size 1.20

@@ -2,45 +2,39 @@
 
 ## What We Did
 
-### Coinbase Backtest Infrastructure
-- Added `--source coinbase` to backtest pipeline — downloads candles from CB perps API, stores as separate parquet files, defaults to 3bps taker fee
-- CB baseline backtest: Sharpe 26.11, win rate 73.2% — params transfer well from HL (23.8 on same test split)
+### Symbol Subset Backtests
+- Tested BTC only, BTC+ETH, BTC+ETH+SOL (baseline) on val+test splits
+- Each additional asset improves Sharpe: BTC=11.9, BTC+ETH=19.4, BTC+ETH+SOL=23.8 (test)
+- SOL contributes +4.4 Sharpe over BTC+ETH — not just correlation, real signal diversity
+- Max DD tradeoff: 1.28% (BTC) → 2.89% (BTC+ETH) → 4.00% (all 3)
 
-### Conviction Analysis
-- Added signal metadata (vote counts) to trade records
-- 4/5 votes is the sweet spot ($18,751 avg net), 5/5 underperforms (late-to-the-party effect)
-- Hybrid maker/taker routing NOT viable — all conviction levels carry positive EV
+### XRP / Multi-Asset Expansion
+- Fixed strategy to accept dynamic symbols (was hardcoded to BTC/ETH/SOL, reverted after testing)
+- XRP adds almost nothing: BTC+ETH+XRP = 19.60 Sharpe vs BTC+ETH = 19.42 (+0.18, noise)
+- Adding XRP to base 3: 23.87 vs 23.82 (+0.05 Sharpe)
+- XRP has worse per-trade quality (lower PF) than SOL in every comparison
+- All 8 symbols: Sharpe 28.68 but DD jumps to 5.92% and win rate drops 2.6pts
+- **Decision: BTC/ETH/SOL is the right basket. No change needed.**
 
-### Fee-Reduction Variants
-- 1h candles: best fee efficiency (12.6% fee/gross) but 30m wins on compounding (700x vs 220x over 165 days, 4.05%/day vs 3.32%/day)
-- MIN_VOTES=4: hurt more than helped (lost alpha > fee savings)
-- No-trade 02-08 UTC: worst performer (forced closes created churn)
-- **Decision: stay on 30m, eat the fees — compounding advantage dominates**
-
-### Dual-Feed Strategies (HL + CB combined)
-- Consensus (both agree): -$12.9M vs baseline, over-filters
-- 10-vote pool 7/10: catastrophic (-$48.6M), too restrictive
-- 10-vote pool 6/10: near-parity (-$6.3M), mostly recreates baseline
-- HL signal, CB exec: best variant (win rate 73.5%, PF 8.53) but still -$3.4M
-- **None beat the single-feed CB baseline. The directional disagreement between exchanges is signal, not noise.**
+### Take Profit Re-Optimization at Size 1.20
+- Original TP=1.2% was optimized at size 1.50 (Phase 2, Mar 27)
+- Full sweep 0.8%–2.0% at current deployed size 1.20, both splits
+- Pattern is monotonic: lower TP = higher Sharpe, higher return, lower DD
+- TP=0.8%: Sharpe 24.23, return 4,357,487%, DD 3.86% (test)
+- TP=1.2% (current): Sharpe 23.82, return 3,689,345%, DD 4.00% (test)
+- TP=0.8% wins all three axes: +0.41 Sharpe, +18% return, -0.14% DD
+- **Not yet deployed. Tradeoff: 264 more trades = more live fee exposure.**
 
 ## Current State
-- All code committed and pushed to `autotrader/30m-exp1` (2 commits)
-- Live strategy on Coinbase is UNCHANGED (30m, current parameters, single-feed)
-- Four research reports in `strategies/30m-concentrated/`:
-  - `COINBASE_BACKTEST_REPORT.md` — CB vs HL comparison
-  - `CONVICTION_ANALYSIS_REPORT.md` — vote count vs return
-  - `FEE_REDUCTION_REPORT.md` — 3 fee variants
-  - `DUAL_FEED_REPORT.md` — 3 dual-feed variants
-- Analysis scripts in `scripts/`: `analyze_conviction.py`, `compare_fee_variants.py`
-- Strategy variants created (for reference, not live use): `strategy_min4.py`, `strategy_notrade_hours.py`, `strategy_consensus.py`, `strategy_10vote.py`, `strategy_hl_signal.py`
-- Shared dual-feed infra: `dual_feed_loader.py`, `dual_feed_helpers.py`
+- Strategy file is UNCHANGED (TP still 1.2%, symbols still BTC/ETH/SOL)
+- All experiments logged to `strategies/30m-concentrated/results.tsv` (rows 98–117)
+- No new code committed this session — research only via CLI experiments
 
 ## Next Steps
-- [ ] Monitor live CB P&L over coming weeks to validate backtest findings
+- [ ] Consider deploying TP=0.8% after paper validation
+- [ ] Monitor live CB P&L to validate backtest findings
 - [ ] Negotiate better taker rates with Coinbase as volume scales
-- [ ] Investigate cross-exchange disagreement as a *signal* (when HL bullish + CB flat → CB catch-up?)
 - [ ] Position sizing by conviction (larger at 4/5, smaller at 5/5) as research thread
 
 ## Quick Context
-Comprehensive research session: CB backtest validates params, conviction analysis shows non-monotonic pattern, fee reduction analysis proves compounding > fee savings, dual-feed analysis proves single-feed is optimal. The strategy is well-tuned — the winning move is to stay on 30m single-feed CB and let it compound. No changes to live needed.
+Research session testing symbol composition and TP re-optimization. BTC/ETH/SOL confirmed as optimal basket (XRP adds nothing, 8 symbols dilutes quality). TP should likely come down to 0.8% at current 1.20 sizing — wins on Sharpe, return, and DD — but not deployed yet pending live validation.
