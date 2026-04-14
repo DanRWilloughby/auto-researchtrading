@@ -525,9 +525,22 @@ def run_one_tick(
     # order was placed).
 
     # --- 4. Check if risk manager has halted us ---
+    # Fix 3: when halted, do NOT early-return. Let the strategy run so it can
+    # generate close/reduce signals for existing positions. check_signal()
+    # will block any open/scale-up signals but allow closes/reduces.
+    # If halted AND fully flat, there's nothing for the strategy to do; skip.
     if risk_mgr.halted:
-        logger.error("Risk manager HALTED: %s", risk_mgr.halt_reason)
-        return state
+        any_open = any(abs(p.notional_usd) > 1.0 for p in positions.values())
+        if not any_open:
+            logger.error(
+                "Risk manager HALTED: %s — and flat, nothing to do",
+                risk_mgr.halt_reason,
+            )
+            return state
+        logger.warning(
+            "Risk manager HALTED: %s — running strategy to allow CLOSE signals only",
+            risk_mgr.halt_reason,
+        )
 
     # --- 5. Build portfolio state for strategy ---
     # Live instances: strategy sees real Coinbase positions.

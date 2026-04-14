@@ -46,6 +46,25 @@ class RiskVerdict:
     warnings: list[str] = field(default_factory=list)
 
 
+def _is_close_or_reduce(target_notional: float, current_notional: float) -> bool:
+    """True if target REDUCES absolute exposure relative to current.
+
+    - target == 0: closing the position entirely → True
+    - target on opposite side of current: position flip (opens other side) → False
+    - same side, |target| < |current|: trimming → True
+    - same side, |target| >= |current|: scaling up or no change → False
+    - current == 0 (flat): any non-zero target is opening → False
+    """
+    if target_notional == 0.0:
+        return True
+    if current_notional == 0.0:
+        return False
+    same_sign = (target_notional > 0) == (current_notional > 0)
+    if not same_sign:
+        return False
+    return abs(target_notional) < abs(current_notional)
+
+
 class RiskManager:
     """Orchestrator for all risk guards."""
 
@@ -199,15 +218,29 @@ class RiskManager:
 
         Returns RiskVerdict with allowed=True/False. The caller is expected
         to only place orders when allowed=True.
+
+        Fix 3: when halted, signals that REDUCE absolute exposure (closing,
+        trimming) are allowed so existing positions can reach their natural
+        TP/SL exits. Signals that OPEN new positions or SCALE UP existing
+        ones are blocked. Position FLIPS (sign change) are blocked because
+        the new-side leg counts as an open.
         """
         warnings: list[str] = []
 
-        # Fast-path: if halted, reject everything
+        # Fix 3: halted state allows close/reduce signals only.
         if self.halted:
-            return RiskVerdict(
-                allowed=False,
-                reason=f"trader halted: {self.halt_reason}",
-            )
+            current = self._positions.get(symbol, 0.0)
+            if not _is_close_or_reduce(target_notional_usd, current):
+                action_type = (
+                    "open from flat" if current == 0.0
+                    else "scale up" if (target_notional_usd > 0) == (current > 0)
+                    else "flip"
+                )
+                return RiskVerdict(
+                    allowed=False,
+                    reason=f"trader halted: {self.halt_reason} — {action_type} blocked",
+                )
+            # close/reduce allowed — fall through to other guards below
 
         # Position limits check
         limit_result = self.position_limits.check_order(
