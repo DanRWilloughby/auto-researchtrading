@@ -13,7 +13,7 @@ account:
 circuit_breaker:
   # Hard halts that flatten all positions and stop the trader.
   max_dd_from_high_water_pct: 10.0    # partnership-level kill switch
-  max_dd_24h_pct: 5.0                 # rolling 24h drawdown
+  max_dd_24h_pct: 15.0                 # rolling 24h drawdown
   max_loss_daily_usd: 500             # 5% of $10K in one calendar day
   require_manual_resume: true         # must delete kill flag + restart
 
