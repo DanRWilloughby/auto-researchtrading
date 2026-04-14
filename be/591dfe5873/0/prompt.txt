@@ -1,0 +1,25 @@
+'/Users/danielwilloughby/Desktop/Screenshot 2026-04-14 at 6.49.19 PM.png'  I cant see any data now? whats going on
+
+---
+
+no I am unable to clck into all of our exerpiments. they are crossed out and say no data
+
+---
+
+okay we're back now jsut out of interest. could you look at the HL Paper trade and simulate it with the current fees we have from the live paper data.  I'd like you to pull the trades by coin. find the average fees per coin) report it and then apply it to all the trades that have occured for the HL strategy to rerun and see where our growth percentage would be and the difference from 65.3% keep in mind all of the compounding that occurs
+
+---
+
+are there other adjustments or modeling we could do based on real coinbase execution data to further determine what a more realistic outcome might be.  maybe increase a slippage assumption?  do you have other ideas?
+
+---
+
+yes please could you do this with our maker//taker assumptions baked in?
+
+---
+
+this slippage is way too high how did you calculate it.  We've been talking about the fees over and over again. Is this because coinbase sits lower in price consistently so its amplified?
+
+---
+
+okay yes before you do though save this and put it in an experiement document that we can come back to to show projections.  Then Next I'd like you to dig into shadow maker underporfmance however I'm pretty sure we already addreswed this and its because it is missing fills completely and thats why we modified the strategy to be a hybrid Maker, taker blend.
