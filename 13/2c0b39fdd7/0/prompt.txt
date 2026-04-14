@@ -1169,3 +1169,7 @@ okay great. would it be better for you to build the steps you can directly?
 ---
 
 okay so lets make a copy to not touch live and build it all so we can test it.
+
+---
+
+all good proceed. just be sure we test everything and verify before you test etc. goooooo
