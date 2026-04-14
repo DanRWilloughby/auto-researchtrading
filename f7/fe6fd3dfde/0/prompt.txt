@@ -1,0 +1,202 @@
+the dashboard is built you can see it here: https://dashboard-green-nu-53.vercel.app/live-monitoring
+but its displaying demo data I think.  how do I get it to be synced live
+
+---
+
+is this helpful
+ Dashboard source lives in the overnight-lab repo, not in auto-researchtrading:  
+                                                                                  
+  - Repo: https://github.com/DanRWilloughby/overnight-lab                       
+  - Path inside repo:                                                             
+  projects/2026-03-22_autoresearch-trading-dashboard/dashboard/                 
+  - Vercel project id: prj_1p5pqQMYJXmDz9st0ZrviUCpQt4Z (team                     
+  team_5N95iuDIE2Rm5NHmJ9blfUqb, project name dashboard) — same ID is referenced
+  from both the auto-researchtrading/dashboard/.vercel/project.json and           
+  overnight-lab/.../dashboard/.vercel/project.json, but the Git-connected         
+  auto-deploy is pointed at the overnight-lab repo.                               
+  auto-researchtrading/dashboard/ is a stale local mirror with just the compiled
+  out/ — don't deploy from it.                                                    
+  - Deploy mechanism: Gitnected auto-deploy on push to main. No vercel 
+  --prebuilt flow.                                                                
+                                                                                
+  Important correction on the 404: I placed the monitoring JSONs under
+  public/data/monitoring/, not public/data/. Every path in my tab component is
+  ${BASE}/data/monitoring/<file>.json. Hitting /data/phase1_attribution.json
+  returns 404 by design — try /data/monitoring/phase1_attribution.json. On main   
+  right now (commit 48ee9e8), all 5 seed JSONs already live at:
+                                                                                  
+  projects/2026-03-22_autoresearch-trading-dashboard/dashboard/public/data/monitor
+  ing/                                                                            
+    phase1_attribution.json                                                     
+    phase2_maker_pilot.json           
+    kill_switch_status.json                   
+    recent_events.jn                   
+    account_metrics.json                                                          
+                                      
+  Those are the seed files that ship with the initial deploy — the sync job should
+   overwrite them on each aggregator run.                                       
+                                                                                  
+  Sync recipe (Option A from the handoff, concrete):
+                                                                                  
+  On the VM as openclaw, clone the overnight-lab repo once:                       
+  git clone git@github.com:DanRWilloughby/overnight-lab.git ~/dashboard-repo
+                                                                                  
+  Then add two crons:                                                             
+  */15 * * * * cd /home/openclaw/auto-researchtrading &&
+  /home/openclaw/.local/bin/uv run python -m monitoring.aggregate >>              
+  live/logs/aggregator.log 21                                                 
+  */15 * * * * /home/openclaw/bin/sync-monitoring.sh >>                           
+  /home/openclaw/dashboard-sync.log 2>&1                                          
+                                              
+  Where sync-monitoring.sh is roughly:                                            
+  #!/usr/bin/env bash                                                             
+  set -e                                      
+  REPO=~/dashboard-repo                                                           
+  DEST=$REPO/projects/2026-03-22_autoresearch-trading-dashboard/dashboard/public/d
+  ata/monitoring                                                                  
+  cd $REPO && git pull --ff-only origin main                                      
+  cp /home/openclaw/auto-researchtrading/monitoring/*.json $DEST/               
+  cd $REPO                                                                        
+  if ! git diff --quiet -- "$DEST"; then                                        
+    git add "$DEST"                                                               
+    git -c user.email=bot@openclaw git commit -m "chore(dashboard): sync          
+  monitoring $(date -u +%FT%TZ)"                                                  
+    git push origin main                                                          
+  fi                                                                              
+                                                                                  
+  Offset the second cron by 2–3 minutes (2,17,32,47 * * * *) so it runs after the 
+  aggregator. Vercel auto-deploys on each push; you'll see fresh data on          
+  /live-monitoring within ~60s of push.                                           
+                                                                                  
+  One gotcha: pushing to main every 15min means 96 deploys/day. Vercel's hobby    
+  tier handles it, but if build minutes get tight, batch to once an hour (0 * * 
+  *) or serve the JSONs from a VM HTTP endpoint instead (handoff Option B).
+
+---
+
+can you do this all for me
+
+---
+
+Go with Path 1, and here's why
+                                                                              
+  The current setup is fragile. scripts/cron-sync.sh runs on your laptop      
+  (DASHBOARD_DIR is the local clone path, not a fresh checkout), via launchd, 
+  and SSH-polls the VM for data before deploying. That means:                 
+  - Laptop asleep or off-VPN → no deploy                    
+  - Laptop's local repo on a different branch or stale → deploys wrong bits
+  - The newly-added VM-side sync-monitoring.sh is now pushing to main      
+  independently, but Vercel has no way to know                                
+                                                                              
+  You've got two deployers racing each other with different sources of truth. 
+  That's a bug factory.                                                       
+                                                            
+  Fix: connect Vercel to GitHub, root dir                                 
+  projects/2026-03-22_autoresearch-trading-dashboard/dashboard, then set this
+  as the Ignored Build Step (Vercel Settings → Git → Ignored Build Step):     
+                                                            
+  git diff --quiet HEAD^ HEAD --
+  projects/2026-03-22_autoresearch-trading-dashboard/dashboard                
+  
+  Vercel convention: exit 0 skips, exit 1 builds. git diff --quiet returns 0  
+  when there's no diff in that path — perfect semantic match. Unrelated
+  commits (the 99% of pushes that don't touch the dashboard) get skipped for  
+  free. Data-only commits from sync-monitoring.sh touch     
+  public/data/monitoring/ which IS under that path, so those correctly trigger
+   builds.
+
+  Retirement sequence:                                                        
+  1. Connect Vercel ↔ GitHub, set root dir + ignored build step
+  2. Push a trivial change to confirm auto-deploy works (can be a comment-only
+   commit to live-monitoring.tsx just to prove it)                          Confirm main's 393e449 builds and the /live-monitoring tab shows real VM 
+  data                                                                       
+  4. Only after that works end-to-end: disable the laptop launchd entry and   
+  delete cron-sync.sh                                                      
+                                                                              
+  Why not Path 2 (CLI-on-VM): fewer moving parts, yes — but you'd have to put
+  a Vercel token on the VM (another secret to rotate), the VM would need      
+  vercel CLI + Node, and builds would happen on the VM instead of on Vercel's
+  build infra (slower, less observable, more surface area). It only wins if   
+  you truly can't git-connect, which isn't the case here.   
+
+  Build minute concern: You mentioned 108 commits ahead of main earlier. With 
+  the ignored build step, only commits touching the dashboard dir actually
+  build. VM sync-monitoring fires every 15min → data changes → build. That's  
+  ~96 deploys/day maxading is active. Vercel hobby = 6000
+  build-minutes/month; if each build is ~2 min you'd be at ~5800/month running
+   24/7. Tight but inside limits. If it bites, batch the sync to hourly (0 * *
+   * *) and you're at ~24 deploys/day with 30x headroom.
+
+  TL;DR: Path 1 with ignored build step. Retire the laptop cron after         
+  verifying. Happy to draft the exact vercel.json / settings walkthrough if
+  helpful.
+
+---
+
+hmm                                                                                                                                                                  
+  Per your plan, now that git auto-deploy is verified, disable the laptop launchd entry and delete scripts/cron-sync.sh (or wherever it lives). I don't know which
+   plist — common guesses: ~/Library/LaunchAgents/com.*dashboard*.plist or similar. Run launchctl list | grep -i dashboard to find it. Leave the SSH-from-laptop  
+  key in place until you're confident; can clean up later.                                                     can you do this
+
+---
+
+we have an issue:
+es — that's 100% the cause. And there's a gap in the plan worth flagging 
+  immediately.                                                                
+                                                                              
+  "Sync pipeline is fully VM-driven now" is half-true. The VM pushes data to  
+  GitHub ✓. But Vercel isn't git-connected — updated_at on /live-monitoring   
+  won't tick forward because nothing between GitHub and Vercel is listening.  
+  You killed the only deployer you had.                     
+
+  Current state:
+  - Main: healthy, 15 strategies, reverts applied, Live Fix Monitoring tab
+  committed                                                                   
+  - GitHub: receiving VM's chore(dashboard): sync monitoring ... commits every
+   ~15min ✓                                                                   
+  - Vercel: frozen on whatever build the laptop cron last pushed (that's why  
+  you see 4 strategies, not 15; it's why the fee-simulator revert isn  visible; it's why updated_at won't advance)                                 
+  - There is no path from git push main → Vercel deploy right now
+                                                                              
+  Two options to unfreeze production:                                         
+                                                                              
+  Option 1 — Git-connect Vercel (recommended, 5 min):                         
+  1. Vercel dashboard → your dashboard project → Settings → Git → "Connect Git
+   Repository"                                                                
+  2. Select DanRWilloughby/overnight-lab                    
+  3. Set Root Directory to                                                    
+  projects/2026-03-22_autoresearch-trading-dashboard/dashboard                
+  4. Set Ignored Build Step to this shell command:                            
+  git diff --quiet HEAD^ HEAD --                                              
+  projects/202research-trading-dashboard/dashboard                
+  4. (exit 0 = skip, so unrelated pushes to the repo skip; dashboard + data   
+  changes build)                                                              
+  5. Trigger a deploy from main — either push any trivial commit, or hit      
+  "Redeploy" in the Deployments tab on the latest main commit           
+                                                                              
+  From then on, every VM sync commit and every code change auto-deploys. The
+  updated_at tick-forward promise becomes real.                               
+                                                            
+  Option 2 — Resurrect the laptop cron, but that's the fragile thing you just 
+  retired. Don't.                                           
+                                                                              
+  For the dead scripts: cron-sync.sh, install-cron.sh, sync-state.sh — git rm 
+  them. Include the removal in whatever commit git-connectsl so the
+  "trigger-a-build" commit does double duty.                                  
+                                                            
+  Want me to open a PR with the script removals + a vercel.json (if needed for
+   root dir / ignored build step — some teams prefer repo config over
+  dashboard UI), or is the UI route easier? If you do it through the Vercel   
+  UI, I can draft the exact values for each field.
+
+---
+
+Can you check the current status of the trading strategies please
+
+---
+
+sure check it please
+
+---
+
+okay yes go ahead.
