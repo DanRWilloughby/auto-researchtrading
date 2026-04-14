@@ -289,6 +289,98 @@ def build_phase2_maker_pilot(log_dir: Path) -> dict:
     }
 
 
+def build_account_metrics(log_dir: Path) -> dict:
+    """Aggregate account performance metrics from existing JSONL logs.
+
+    Reads:
+      - hwm_track_*.jsonl → per-tick mtm/realized equity → end-of-day cash + history
+      - trades_*.jsonl    → per-trade fees → cumulative + daily breakdown
+
+    Produces an account_metrics.json file the dashboard can render to show
+    cash balance trend and fee accumulation over time.
+    """
+    from datetime import datetime, timezone
+
+    hwm_ticks = _read_jsonl_glob(log_dir, "hwm_track")
+    trades = _read_jsonl_glob(log_dir, "trades")
+
+    # Filter to LIVE trades only (live fees are real $; paper fee_usd is 0)
+    live_trades = [t for t in trades if not t.get("dry_run", True)]
+
+    # --- Current snapshot ---
+    current = {}
+    if hwm_ticks:
+        latest = hwm_ticks[-1]
+        current["cash_balance_usd"] = latest.get("realized_equity", 0.0)
+        current["mtm_equity_usd"] = latest.get("mtm_equity", 0.0)
+        current["unrealized_pnl_usd"] = round(
+            latest.get("mtm_equity", 0.0) - latest.get("realized_equity", 0.0), 2
+        )
+    else:
+        current = {"cash_balance_usd": 0.0, "mtm_equity_usd": 0.0, "unrealized_pnl_usd": 0.0}
+
+    # --- Cumulative fees ---
+    cumulative_fees = sum(t.get("fee_usd", 0.0) for t in live_trades)
+
+    # --- Per-day breakdown ---
+    def date_of(ts_ms):
+        if not ts_ms:
+            return None
+        return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+
+    fees_by_date: dict[str, dict] = {}
+    for t in live_trades:
+        d = date_of(t.get("ts"))
+        if not d:
+            continue
+        if d not in fees_by_date:
+            fees_by_date[d] = {"fees_usd": 0.0, "trades": 0}
+        fees_by_date[d]["fees_usd"] += t.get("fee_usd", 0.0)
+        fees_by_date[d]["trades"] += 1
+
+    # End-of-day cash balance from hwm ticks: for each date, last realized_equity seen
+    cash_by_date: dict[str, float] = {}
+    for tick in hwm_ticks:
+        d = date_of(tick.get("ts"))
+        if d:
+            cash_by_date[d] = tick.get("realized_equity", 0.0)
+
+    sorted_dates = sorted(set(list(fees_by_date.keys()) + list(cash_by_date.keys())))
+    daily_fees_breakdown = []
+    cash_balance_history = []
+    for d in sorted_dates:
+        if d in fees_by_date:
+            daily_fees_breakdown.append({
+                "date": d,
+                "fees_usd": round(fees_by_date[d]["fees_usd"], 2),
+                "trades": fees_by_date[d]["trades"],
+            })
+        if d in cash_by_date:
+            cash_balance_history.append({
+                "date": d,
+                "end_of_day_cash_usd": round(cash_by_date[d], 2),
+            })
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today_fees = fees_by_date.get(today, {}).get("fees_usd", 0.0)
+
+    last_7_days = sum(
+        e["fees_usd"] for e in daily_fees_breakdown[-7:]
+    )
+
+    return {
+        "updated_at": _now_iso(),
+        "current": current,
+        "fees": {
+            "cumulative_paid_usd": round(cumulative_fees, 2),
+            "today_paid_usd": round(today_fees, 2),
+            "last_7_days_total_usd": round(last_7_days, 2),
+            "daily_breakdown": daily_fees_breakdown[-30:],  # cap at 30 days
+        },
+        "cash_balance_history": cash_balance_history[-30:],
+    }
+
+
 def write_all(log_dir: Path, output_dir: Path) -> dict[str, Path]:
     """Build all monitoring JSON files. Returns map of name → path written.
 
@@ -302,6 +394,7 @@ def write_all(log_dir: Path, output_dir: Path) -> dict[str, Path]:
         "phase2_maker_pilot.json": lambda: build_phase2_maker_pilot(log_dir),
         "kill_switch_status.json": lambda: build_kill_switch_status(log_dir),
         "recent_events.json": lambda: build_recent_events(log_dir),
+        "account_metrics.json": lambda: build_account_metrics(log_dir),
     }
 
     written: dict[str, Path] = {}

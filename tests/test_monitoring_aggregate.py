@@ -168,9 +168,10 @@ class TestWriteAll:
         out_dir = tmp_path / "out"
         log_dir.mkdir()
         written = aggregate.write_all(log_dir=log_dir, output_dir=out_dir)
-        # Should produce all 4 files (Phase 1 + Phase 2 + kill switches + recent events)
-        assert len(written) == 4
+        # Should produce all 5 files (Phase 1 + Phase 2 + kill switches + recent events + account metrics)
+        assert len(written) == 5
         assert "phase2_maker_pilot.json" in written
+        assert "account_metrics.json" in written
 
 
 class TestPhase2MakerPilot:
@@ -235,3 +236,83 @@ class TestPhase2MakerPilot:
         result = aggregate.build_phase2_maker_pilot(log_dir=tmp_path)
         assert result["paired_observations_total"] == 0  # not "paired"
         assert result["skipped_signals"] == 1
+
+
+class TestAccountMetrics:
+    """Daily cash balance + cumulative fees aggregation."""
+
+    def test_empty_returns_zero_state(self, tmp_path):
+        result = aggregate.build_account_metrics(log_dir=tmp_path)
+        assert result["current"]["cash_balance_usd"] == 0.0
+        assert result["fees"]["cumulative_paid_usd"] == 0.0
+        assert result["cash_balance_history"] == []
+
+    def test_cumulative_fees_sums_only_live_trades(self, tmp_path):
+        # Mix of live and paper trades — paper should be excluded
+        _write_jsonl(tmp_path / "trades_2026-04-15.jsonl", [
+            {"ts": _now_ms(), "fee_usd": 1.50, "dry_run": False},
+            {"ts": _now_ms(), "fee_usd": 2.30, "dry_run": False},
+            {"ts": _now_ms(), "fee_usd": 99.99, "dry_run": True},  # paper - exclude
+        ])
+        result = aggregate.build_account_metrics(log_dir=tmp_path)
+        assert result["fees"]["cumulative_paid_usd"] == 3.80
+
+    def test_current_snapshot_uses_latest_hwm_tick(self, tmp_path):
+        ts1 = _now_ms()
+        _write_jsonl(tmp_path / "hwm_track_2026-04-15.jsonl", [
+            {"ts": ts1, "mtm_equity": 9500.0, "realized_equity": 9500.0,
+             "hwm_new_realized": 10000, "hwm_old_mtm": 10000,
+             "dd_new_pct": 0, "dd_old_pct": 0, "would_old_trigger": False,
+             "did_new_trigger": False, "threshold_pct": 10},
+            {"ts": ts1 + 1000, "mtm_equity": 9528.11, "realized_equity": 9536.46,
+             "hwm_new_realized": 10000, "hwm_old_mtm": 10000,
+             "dd_new_pct": 0, "dd_old_pct": 0, "would_old_trigger": False,
+             "did_new_trigger": False, "threshold_pct": 10},
+        ])
+        result = aggregate.build_account_metrics(log_dir=tmp_path)
+        assert result["current"]["cash_balance_usd"] == 9536.46
+        assert result["current"]["mtm_equity_usd"] == 9528.11
+        assert result["current"]["unrealized_pnl_usd"] == round(9528.11 - 9536.46, 2)
+
+    def test_daily_breakdown_groups_by_utc_date(self, tmp_path):
+        from datetime import datetime, timezone
+        d1 = datetime(2026, 4, 14, 12, 0, tzinfo=timezone.utc)
+        d2 = datetime(2026, 4, 14, 18, 0, tzinfo=timezone.utc)
+        d3 = datetime(2026, 4, 15, 8, 0, tzinfo=timezone.utc)
+        _write_jsonl(tmp_path / "trades_2026-04-15.jsonl", [
+            {"ts": int(d1.timestamp() * 1000), "fee_usd": 1.0, "dry_run": False},
+            {"ts": int(d2.timestamp() * 1000), "fee_usd": 2.0, "dry_run": False},
+            {"ts": int(d3.timestamp() * 1000), "fee_usd": 3.0, "dry_run": False},
+        ])
+        result = aggregate.build_account_metrics(log_dir=tmp_path)
+        breakdown = {e["date"]: e for e in result["fees"]["daily_breakdown"]}
+        assert breakdown["2026-04-14"]["fees_usd"] == 3.0
+        assert breakdown["2026-04-14"]["trades"] == 2
+        assert breakdown["2026-04-15"]["fees_usd"] == 3.0
+        assert breakdown["2026-04-15"]["trades"] == 1
+
+    def test_cash_balance_history_uses_end_of_day(self, tmp_path):
+        from datetime import datetime, timezone
+        d1_morning = int(datetime(2026, 4, 14, 8, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        d1_evening = int(datetime(2026, 4, 14, 22, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        _write_jsonl(tmp_path / "hwm_track_2026-04-15.jsonl", [
+            {"ts": d1_morning, "mtm_equity": 10000, "realized_equity": 10000,
+             "hwm_new_realized": 10000, "hwm_old_mtm": 10000,
+             "dd_new_pct": 0, "dd_old_pct": 0, "would_old_trigger": False,
+             "did_new_trigger": False, "threshold_pct": 10},
+            {"ts": d1_evening, "mtm_equity": 9700, "realized_equity": 9750,
+             "hwm_new_realized": 10000, "hwm_old_mtm": 10000,
+             "dd_new_pct": 0, "dd_old_pct": 0, "would_old_trigger": False,
+             "did_new_trigger": False, "threshold_pct": 10},
+        ])
+        result = aggregate.build_account_metrics(log_dir=tmp_path)
+        # Should use the LAST tick of the day (evening = 9750)
+        history = {e["date"]: e for e in result["cash_balance_history"]}
+        assert history["2026-04-14"]["end_of_day_cash_usd"] == 9750.0
+
+    def test_write_all_includes_account_metrics(self, tmp_path):
+        log_dir = tmp_path / "logs"
+        out_dir = tmp_path / "out"
+        log_dir.mkdir()
+        written = aggregate.write_all(log_dir=log_dir, output_dir=out_dir)
+        assert "account_metrics.json" in written

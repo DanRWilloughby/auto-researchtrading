@@ -16,9 +16,9 @@ Refresh: same cadence as the existing dashboard data sync (no live websocket nee
 
 ---
 
-## Data contract (4 JSON files)
+## Data contract (5 JSON files)
 
-The VM produces these 4 files. They will be synced to the dashboard's static asset path (whatever path your existing `data/config.json` lives at — see "VM sync" below).
+The VM produces these 5 files. They will be synced to the dashboard's static asset path (whatever path your existing `data/config.json` lives at — see "VM sync" below).
 
 All files contain `updated_at` ISO timestamp. Render that somewhere visible so user knows data freshness.
 
@@ -104,7 +104,42 @@ Traffic-light status for protective kill switches. Status is one of `"green"`, `
 
 The `switches` array is variable-length — render whatever switches the file contains. Handle unknown switch names gracefully (just show name + status + current_value).
 
-### 4. `recent_events.json`
+### 4. `account_metrics.json`
+
+Daily cash balance + cumulative fees breakdown. Use for the account-performance section of the tab.
+
+```json
+{
+  "updated_at": "2026-04-21T14:00:00+00:00",
+  "current": {
+    "cash_balance_usd": 9536.46,
+    "mtm_equity_usd": 9528.11,
+    "unrealized_pnl_usd": -8.35
+  },
+  "fees": {
+    "cumulative_paid_usd": 569.03,
+    "today_paid_usd": 7.86,
+    "last_7_days_total_usd": 50.50,
+    "daily_breakdown": [
+      {"date": "2026-04-13", "fees_usd": 12.30, "trades": 5},
+      {"date": "2026-04-14", "fees_usd": 7.86, "trades": 3}
+    ]
+  },
+  "cash_balance_history": [
+    {"date": "2026-04-13", "end_of_day_cash_usd": 10000.00},
+    {"date": "2026-04-14", "end_of_day_cash_usd": 9536.46}
+  ]
+}
+```
+
+Notes:
+- `cash_balance_usd` is realized only (excludes unrealized P&L on open positions). Matches what would appear in the CB account UI as "available margin."
+- `mtm_equity_usd` is mark-to-market (cash + unrealized). What the strategy actually has at risk right now.
+- `unrealized_pnl_usd` is the difference — useful as a single-glance "how much am I underwater on open positions."
+- `fees.cumulative_paid_usd` includes ONLY live fees (paper trades excluded). This is real money out the door.
+- `daily_breakdown` and `cash_balance_history` are capped at last 30 days to keep file size small.
+
+### 5. `recent_events.json`
 
 Rolling event feed. Most recent first. Up to 50 events.
 
@@ -142,6 +177,22 @@ Format `ts` as a relative time ("3m ago", "2h ago") in the user's local timezone
 | 2 | **Days Live (Phase 1)** | `phase1_attribution.days_live` | Just the number |
 | 3 | **Kill-Switch Status** (text summary like "4/4 green") | Aggregate of `kill_switch_status.switches` colors | Color the whole tile by worst status |
 | 4 | **Maker Pilot Status** | `phase2_maker_pilot.pilot_active` + `paired_observations_total` | "Not active" or "47 trades" |
+
+### Account Performance section (top of tab, below KPI tiles)
+
+NEW section showing the financial state at a glance. Uses `account_metrics.json`.
+
+**Three big numbers + one chart:**
+
+1. **Current Cash Balance** — `current.cash_balance_usd` (realized equity, matches CB account UI). Format as currency with trend arrow vs initial $10K.
+2. **MTM Equity** — `current.mtm_equity_usd` (cash + unrealized). With `unrealized_pnl_usd` as colored sub-text (green +, red −).
+3. **Cumulative Fees Paid** — `fees.cumulative_paid_usd`. With `today_paid_usd` and `last_7_days_total_usd` as sub-text (e.g. "$7.86 today / $50.50 this week").
+
+**Cash balance trend chart** — line chart of `cash_balance_history` (date on x-axis, end_of_day_cash_usd on y-axis). 30 days max. Reference line at $10,000 (initial capital) so user sees crossing the breakeven mark visually.
+
+**Daily fees bar chart** — bars from `fees.daily_breakdown` (date on x-axis, fees_usd as bar height). Useful for spotting fee spikes.
+
+If both files have data, render side-by-side. If only `account_metrics.json` is missing, hide this section gracefully (the tab still works without it).
 
 ### Per-fix attribution cards (2x2 grid)
 
@@ -342,6 +393,37 @@ For local development, here are realistic sample JSONs you can put in your dashb
   "switches": [
     {"name": "dd_approach", "status": "green", "current_value": "1.85%", "threshold": "10.0%", "distance_to_trigger": "8.15pp"},
     {"name": "hwm_drift_detection", "status": "green", "current_value": "0 ticks", "threshold": "0 (invariant)", "invariant_holds": true}
+  ]
+}
+```
+
+**account_metrics.json (sample after 1 week of trading):**
+```json
+{
+  "updated_at": "2026-04-21T14:00:00+00:00",
+  "current": {"cash_balance_usd": 10185.40, "mtm_equity_usd": 10220.10, "unrealized_pnl_usd": 34.70},
+  "fees": {
+    "cumulative_paid_usd": 412.50,
+    "today_paid_usd": 8.20,
+    "last_7_days_total_usd": 412.50,
+    "daily_breakdown": [
+      {"date": "2026-04-15", "fees_usd": 65.20, "trades": 28},
+      {"date": "2026-04-16", "fees_usd": 71.40, "trades": 31},
+      {"date": "2026-04-17", "fees_usd": 58.10, "trades": 25},
+      {"date": "2026-04-18", "fees_usd": 62.30, "trades": 27},
+      {"date": "2026-04-19", "fees_usd": 79.80, "trades": 34},
+      {"date": "2026-04-20", "fees_usd": 67.50, "trades": 29},
+      {"date": "2026-04-21", "fees_usd": 8.20, "trades": 4}
+    ]
+  },
+  "cash_balance_history": [
+    {"date": "2026-04-14", "end_of_day_cash_usd": 9536.46},
+    {"date": "2026-04-15", "end_of_day_cash_usd": 9712.30},
+    {"date": "2026-04-16", "end_of_day_cash_usd": 9890.10},
+    {"date": "2026-04-17", "end_of_day_cash_usd": 9954.20},
+    {"date": "2026-04-18", "end_of_day_cash_usd": 10078.90},
+    {"date": "2026-04-19", "end_of_day_cash_usd": 10160.50},
+    {"date": "2026-04-20", "end_of_day_cash_usd": 10185.40}
   ]
 }
 ```
