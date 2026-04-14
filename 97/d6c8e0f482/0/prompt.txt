@@ -1177,3 +1177,23 @@ all good proceed. just be sure we test everything and verify before you test etc
 ---
 
 lets change the drawdown threshold to 10% please.  and then do a smoketest do everything until we're ready to deploy so the dashboard is all thats left.
+
+---
+
+okay great can you deploy this live. want to confirm this will not impact the paper trading at all though right?
+
+---
+
+you can GO with one modification. I would like to reset the Max equity value to 10k since the numbers before were miscalculated.  We can keep the historial trade data etc. but that number for the purposes of draw down or gains etc should start at 10k is that possible
+
+---
+
+right now its triggering the circuit breaker trading halted manual kill flag detected. I assume we can fix that right?  you can delete it yes.
+
+---
+
+what about the BTC split strategy did that work?
+
+---
+
+okay yes pleas start and make sure you're testing everything carefully
