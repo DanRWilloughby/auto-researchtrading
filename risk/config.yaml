@@ -11,11 +11,16 @@ account:
   nominal_capital_usd: 10000
 
 circuit_breaker:
-  # Hard halts that flatten all positions and stop the trader.
+  # Hard halts that stop new entries (existing positions ride to natural exits — Fix 3).
+  # Both DD thresholds aligned at 10% per Apr 14 post-mortem decision: the 5%
+  # 24h threshold was firing on normal strategy volatility against phantom HWM
+  # peaks. Now that HWM ratchets on realized equity only (Fix 5), 10% is well
+  # below catastrophic but well above strategy-natural drawdowns.
   max_dd_from_high_water_pct: 10.0    # partnership-level kill switch
-  max_dd_24h_pct: 15.0                 # rolling 24h drawdown
+  max_dd_24h_pct: 10.0                # aligned with HWM trigger
   max_loss_daily_usd: 500             # 5% of $10K in one calendar day
-  require_manual_resume: true         # must delete kill flag + restart
+  require_manual_resume: false        # Fix 4: auto-reset cooldown handles this
+  auto_reset_cooldown_sec: 7200       # Fix 4: 2-hour cooldown after DD recovers
 
 flash_crash_guard:
   # Separate thread that polls prices between 30-min bars via WebSocket.

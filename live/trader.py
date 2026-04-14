@@ -883,6 +883,14 @@ def main():
     # Override dry_run from env var if set (safety gate for ops)
     dry_run = args.dry_run or os.environ.get("LIVE_TRADER_DRY_RUN", "").lower() in ("1", "true", "yes")
 
+    # Configure monitoring/event_log to write JSONL files alongside other live logs.
+    # See PLANNED_FIXES.md "Phase 1 logging requirements".
+    try:
+        from monitoring.event_log import set_log_dir as _set_monitoring_log_dir
+        _set_monitoring_log_dir(PROJECT_ROOT / "live" / "logs")
+    except Exception as e:
+        logger.warning("Failed to configure monitoring log dir: %s", e)
+
     # Build clients
     client = CoinbaseClient(dry_run_default=dry_run)
 

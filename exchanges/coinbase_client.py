@@ -624,6 +624,29 @@ class CoinbaseClient(ExchangeClient):
             skip_tolerance_usd=skip_tolerance_usd,
         )
         if skip:
+            # Fix 1 attribution logging: record the SKIP event with implied
+            # fee avoided. Used by monitoring/aggregate.py to compute the
+            # cumulative dollar attribution for Fix 1.
+            try:
+                from monitoring.event_log import log_skip_event
+                # Approx fee avoided: assumes typical CB derivatives taker
+                # rate (3 bps) on the delta notional we did NOT trade.
+                # This is a lower bound; actual avoided fee includes fixed
+                # $0.15/contract regulatory passthrough on contracts not traded.
+                delta_notional = abs(target_notional_usd - current_notional_usd)
+                implied_fee_avoided = delta_notional * 0.0003  # 3 bps
+                log_skip_event(
+                    symbol=symbol,
+                    target_notional_usd=target_notional_usd,
+                    current_notional_usd=current_notional_usd,
+                    delta_notional_usd=delta_notional,
+                    implied_fee_avoided_usd=implied_fee_avoided,
+                    tolerance_used_usd=skip_tolerance_usd,
+                    skip_reason=skip_reason,
+                )
+            except Exception:
+                pass  # logging is fail-soft
+
             return OrderResult(
                 success=True,
                 order_id=None,

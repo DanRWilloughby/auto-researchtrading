@@ -174,3 +174,13 @@ class TestBackwardCompatibility:
         should_halt, reason = cb.check(current_equity=8800.0, daily_realized_pnl=0.0)
         # 12% DD from $10000 HWM -> trigger
         assert should_halt is True
+
+    def test_legacy_equity_point_positional(self):
+        """live/trader.py state restoration uses EquityPoint(ts, eq) — must keep working."""
+        from risk.circuit_breaker import EquityPoint
+        # Legacy 2-arg form: realized_equity defaults to mtm_equity
+        ep = EquityPoint(1000.0, 9500.0)
+        assert ep.timestamp == 1000.0
+        assert ep.mtm_equity == 9500.0
+        assert ep.realized_equity == 9500.0  # defaulted from mtm
+        assert ep.equity == 9500.0  # legacy property still works

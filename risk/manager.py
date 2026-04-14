@@ -206,7 +206,18 @@ class RiskManager:
                 daily_realized_pnl=daily_realized_pnl,
             )
         if should_halt and not self.circuit_breaker.halted:
-            self.circuit_breaker.halt(reason)
+            # Pass open positions + marks so Fix 3 attribution can record what
+            # would have been force-flattened pre-fix.
+            marks = {
+                sym: snap.entry_price
+                for sym, snap in self._position_snapshots.items()
+                if snap.contracts != 0
+            }
+            self.circuit_breaker.halt(
+                reason,
+                open_positions=dict(self._positions),
+                marks=marks,
+            )
 
     def check_signal(
         self,

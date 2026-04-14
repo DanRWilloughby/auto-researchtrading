@@ -14,9 +14,9 @@ except ImportError:
 @dataclass
 class CircuitBreakerConfig:
     max_dd_from_high_water_pct: float = 10.0
-    max_dd_24h_pct: float = 5.0
+    max_dd_24h_pct: float = 10.0   # aligned with HWM threshold (was 5.0)
     max_loss_daily_usd: float = 500.0
-    require_manual_resume: bool = True
+    require_manual_resume: bool = False  # Fix 4 supersedes — auto-reset handles resumes
     # Fix 4: auto-clear kill flag after this cooldown expires AND DD has recovered.
     # 0 = disabled (legacy behavior, manual intervention required).
     # 7200 = 2 hours (recommended). Re-breach during cooldown resets the timer.

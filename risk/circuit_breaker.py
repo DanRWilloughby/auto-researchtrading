@@ -43,12 +43,22 @@ class EquityPoint:
     `mtm_equity` is what the user sees as "current equity" (cash + unrealized).
     `realized_equity` is the settled portion (cash only / realized PnL).
     HWM ratchets on realized; DD ratio uses mtm. See module docstring.
+
+    Backward compat: legacy callers using EquityPoint(ts, equity) — positional
+    2-arg form — get realized_equity defaulted to the same value. State files
+    persisted before Fix 5 only recorded a single `equity` value (MTM); on
+    restore we fall back to that for both fields. New code MUST pass realized
+    explicitly when the values differ.
     """
     timestamp: float
     mtm_equity: float
-    realized_equity: float
+    realized_equity: float = None  # type: ignore[assignment]
 
-    # Backward compat: older code may construct with single `equity` kwarg
+    def __post_init__(self):
+        if self.realized_equity is None:
+            self.realized_equity = self.mtm_equity
+
+    # Backward compat: older code reads `.equity` (= MTM)
     @property
     def equity(self) -> float:
         return self.mtm_equity
@@ -68,6 +78,9 @@ class CircuitBreaker:
         self.watchdog_config = watchdog_config
         self.alerts = alerts
         self.high_water = initial_equity  # ratchets on realized_equity only (Fix 5)
+        # Shadow tracker: what HWM would have been under pre-fix MTM-based logic.
+        # Used by Fix 5 attribution logging to count phantom triggers prevented.
+        self._hwm_old_mtm_shadow = initial_equity
         self.session_start_equity = initial_equity
         self.session_start_ts = time.time()
         self.equity_history: deque[EquityPoint] = deque(maxlen=2880)  # 24h of 30s samples
@@ -130,11 +143,38 @@ class CircuitBreaker:
         # from in-flight settlement do not get locked into HWM.
         if realized_equity > self.high_water:
             self.high_water = realized_equity
+        # Shadow: also ratchet old MTM-based HWM for attribution comparison.
+        if mtm_equity > self._hwm_old_mtm_shadow:
+            self._hwm_old_mtm_shadow = mtm_equity
 
         # Trim to 24h window
         cutoff = now - 24 * 3600
         while self.equity_history and self.equity_history[0].timestamp < cutoff:
             self.equity_history.popleft()
+
+        # Fix 5 attribution logging: emit dual-track HWM observation.
+        # Used by monitoring/aggregate.py to count phantom triggers prevented.
+        try:
+            from monitoring.event_log import log_hwm_tick
+            dd_new_pct = (
+                (self.high_water - mtm_equity) / self.high_water * 100
+                if self.high_water > 0 else 0.0
+            )
+            dd_old_pct = (
+                (self._hwm_old_mtm_shadow - mtm_equity) / self._hwm_old_mtm_shadow * 100
+                if self._hwm_old_mtm_shadow > 0 else 0.0
+            )
+            log_hwm_tick(
+                mtm_equity=mtm_equity,
+                realized_equity=realized_equity,
+                hwm_new_realized=self.high_water,
+                hwm_old_mtm=self._hwm_old_mtm_shadow,
+                dd_new_pct=dd_new_pct,
+                dd_old_pct=dd_old_pct,
+                threshold_pct=self.config.max_dd_from_high_water_pct,
+            )
+        except Exception:
+            pass  # logging is fail-soft
 
     def check(
         self,
@@ -266,12 +306,39 @@ class CircuitBreaker:
         except Exception as e:
             logger.error("Auto-reset: failed to remove kill flag: %s", e)
             return False
+
+        # Fix 4 attribution logging
+        cooldown_duration = now - self.last_breach_ts
+        try:
+            from monitoring.event_log import log_cooldown_event
+            dd_pct = (
+                (self.high_water - mtm_equity) / self.high_water * 100
+                if self.high_water > 0 else 0.0
+            )
+            log_cooldown_event(
+                ts_trigger_ms=int(self.last_breach_ts * 1000),
+                ts_cleared_ms=int(now * 1000),
+                cooldown_duration_sec=cooldown_duration,
+                dd_at_clear_pct=dd_pct,
+            )
+        except Exception:
+            pass
+
         self.clear_halt()
         self.last_breach_ts = None  # reset for next cycle
         return True
 
-    def halt(self, reason: str, create_kill_flag: bool = True) -> None:
-        """Mark the trader as halted. Optionally create the kill flag file."""
+    def halt(self, reason: str, create_kill_flag: bool = True,
+             open_positions: Optional[dict] = None,
+             marks: Optional[dict] = None) -> None:
+        """Mark the trader as halted. Optionally create the kill flag file.
+
+        Args:
+            open_positions: {symbol: notional_usd} at trigger time (for Fix 3
+                attribution — these would have been force-flattened pre-fix
+                and now ride to natural exits).
+            marks: {symbol: mark_price} at trigger time (paired with open_positions).
+        """
         if self._halted:
             return  # idempotent
         self._halted = True
@@ -282,11 +349,26 @@ class CircuitBreaker:
                 logger.info("Kill flag written to %s", self.kill_flag)
             except Exception as e:
                 logger.error("Failed to write kill flag: %s", e)
+
+        current_mtm = self.equity_history[-1].mtm_equity if self.equity_history else 0.0
+        # Fix 3 attribution logging
+        try:
+            from monitoring.event_log import log_halt_event
+            log_halt_event(
+                trigger_reason=reason,
+                hwm_at_trigger=self.high_water,
+                equity_at_trigger=current_mtm,
+                open_positions=open_positions or {},
+                marks_at_trigger=marks or {},
+            )
+        except Exception:
+            pass
+
         self.alerts.circuit_breaker(
             f"TRADING HALTED: {reason}",
             high_water=f"${self.high_water:,.2f}",
             session_start=f"${self.session_start_equity:,.2f}",
-            current=f"${self.equity_history[-1].equity:,.2f}" if self.equity_history else "?",
+            current=f"${current_mtm:,.2f}" if self.equity_history else "?",
             kill_flag_path=str(self.kill_flag),
         )
 
