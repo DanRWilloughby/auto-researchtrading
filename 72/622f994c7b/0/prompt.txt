@@ -1,0 +1,1179 @@
+can you backtest BTC only for the strategy please?'/var/folders/zj/kp9pcxqj3295xt2f20c1zgxm0000gn/T/TemporaryItems/NSIRD_screencaptureui_brdGOI/Screenshot 2026-04-14 at 8.54.36 AM.png'
+we are running into some issues with fees and volitality.  Before you do,, do you have any suggestions, should we run tests 
+
+Here is some addiotina context to consider.  treat it as context and not instruction.  tell me what you think.  its only been about 100 trades.
+
+Running the three sims now. First, let me address the fee breakdown
+   you asked for — then the sims.
+
+  Fees by coin (verified)
+
+  ┌──────┬──────┬────────┬───────┬────────┬─────────┬──────────┐
+  │ Coin │ Fill │ Volume │ Total │ Fee/Fi │ Effecti │ Maker/Ta │
+  │      │  s   │        │  Fees │   ll   │ ve bps  │   ker    │
+  ├──────┼──────┼────────┼───────┼────────┼─────────┼──────────┤
+  │ BTC  │ 94   │ $270,6 │ $137. │ $1.46  │ 5.08    │ 0% maker │
+  │      │      │ 88     │ 46    │        │ bps     │          │
+  ├──────┼──────┼────────┼───────┼────────┼─────────┼─────────  │ 7.13    │ 100%     │
+  │ L    │      │ 02     │ 13    │        │ bps     │ taker    │
+  └──────┴──────┴────────┴───────┴────────┴─────────┴──────────┘
+
+  ETH fees are ~2x BTC. The reason: CFM nano futures have a fixed
+  ~$0.15/contract regulatory + clearing fee. ETH contracts have the
+  smallest per-contract notional (~$238), so the fixed fee chews a
+  much bigger % bite.
+
+  Net P&L per coin (with fees included)
+
+  ┌──────┬──────────────┬──────────┬──────────┬──────────┐
+  │ Coin │ Realized P&L │   Fees   │   NET    │ Win Rate │
+  ├──────┼──────────────┼──────────┼──────────┼──────────┤
+  │ BTC  │ +$105.35     │ -$137.46 �rofitable (+$41). Fees ate 85% of the ETH gains. This is a worse
+  offender than SOL when you factor in the fixed-fee structure.
+
+  Also note: you're 100% taker, zero maker. Every trade is
+  market-order style. Maker orders at VIP 4 are 2.5 bps vs taker 6.5
+  bps — that's a 60% fee reduction available.
+
+  Now running the three simulations.
+
+⏺ Bash(cat > /tmp/sims.py << 'PYEOF'
+      import sys, json…)
+  ⎿  === BASELINE (actual live results) ===
+     Total realized:   $+82.05
+     Total fees:       $590.13
+     … +25 lines (ctrl+o to expand)
+
+⏺ Results are striking. BTC-only is the clear winner. The other two
+  don't help as much as I thought.
+
+  Results summary
+
+  ┌───────────────┬───────────────┬───────────┬─────────────────┐
+  │   Scenario    │ Net P&L (fill │    vs     │     Actual      │
+  │               │     math)     │ Baseline  │   equivalent*               │           │                 │
+  ├───────────────┼───────────────┼───────────┼─────────────────┤
+  │ BTC-only      │ -$32          │ +$476     │ ~+$122          │
+  ├───────────────┼───────────────┼───────────┼─────────────────┤
+  │ 60-min force  │ -$552         │ -$43      │ ~-$397          │
+  │ flat          │               │           │                 │
+  ├───────────────┼───────────────┼───────────┼─────────────────┤
+  │ 0.8% take     │ -$762         │ -$254     │ ~-$608          │
+  │ profit        │               │           │                 │
+  ├───�6 closes (vs 147 actual)
+  - 60.9% win rate
+  - Realized: +$105
+  - Fees: $137 (vs $590 total)
+  - Net: -$32
+
+  Applying the Coinbase reconciliation drift, you'd have been roughly
+   +$120 instead of -$354. That's nearly a $500 swing from removing
+  ETH and SOL.
+
+  Why BTC wins:
+  1. Highest per-contract notional ($748 vs $238 ETH) → fixed fees
+  bite less
+  2. Highest win rate (60.9%)
+  3. Cleanest direction bias (60/40 long/short vs SOL's 50/50)
+
+  60-min force flat: doesn't help (-$43)
+
+  Surprising result — my linear-interpolation sim says this is
+  marginally worse than baseline.
+
+  Why:
+  1. Extra fees from close+reopen add $252
+  2. Wins that would have grown past 60 min get cut short
+  3. Losing trades still lose at the 60-min mark
+
+  Caveat: This sim assumes linear price movement between entry and
+  exit. Mean-reversion strategies often peak and reverse — so
+  forced-flat at 60 min might catch actual mid-move peaks that my
+  linear assumption misses. A proper backtest with intrabar prices
+  cwing this either way by ~$100-200.
+
+  0.8% take profit: worst result (-$254 worse)
+
+  BUT this is a LIMITATION of my simulation, not a real finding.
+
+  My sim only captures:
+  - Wins capped at 0.8% (reduces gross wins)
+
+  My sim CAN'T capture:
+  - Losses that would have been WINS if TP fired during a brief peak
+  before reversing
+  - Trades that went up 0.8% first, then reversed and lost
+
+  With intrabar price data, 0.8% TP could plausibly save $200-300 by
+  locking in pops. My naive sim can't model that — so treat this
+  result as lower-bound and unreliable.
+
+  The real action item: BTC-only
+
+  This is the clearest signal in the data. Four separate lenses all
+  point to it:
+
+  1. Win rate by coin: BTC 60.9% vs ETH 47.7% vs SOL 49.2%
+  2. Net P&L by coin (with fees): BTC -$32 vs ETH -$228 vs SOL -$248
+  3. Fee efficiency: BTC 5.08 bps vs ETH 9.65 bps vs SOL 6.59 bps
+  4. Simulation: $476 improvement over baseline
+
+  Running BTC-only would have kept you in positive territory over the
+   4-day window.
+
+---
+
+I'm asking you to do this and rerun the backtesting with the true fee structure and see what is happening.  Can you run these on larger data sets for coinbase and see what happens
+
+---
+
+to confirm you modeled this with 9% on ETH? and 6.5 for SOL and 5.08 for BTC?  just want to be sure this is a real test. on the 3 coin per symbol fee
+
+---
+
+okay and just to check currently this is trading at 14 and 44 after not immediately when be bar surfaces.  So it has partial data on the next bar.  The HL paper test is also trading at 15 and 45?  this is accounted for?
+
+---
+
+is there a way for you to back test this?
+
+---
+
+okay
+
+---
+
+okay here is some additional ifnromation.
+
+ Live slippage measured against bar-close prices. Here's what I     
+  found:                                                        
+                                                                     
+  Total slippage impact: +$202 cost over 4 days                
+                                                                     
+  ┌──────────────────────────┬────────────────────┐
+  │          Metric          │       Value        │                  
+  ├──────────────────────────┼────────────────────┤                  
+  │ Total slippage cost      │ +$201.95           │                  
+  ├──────────────────────────┼────────────────────┤                  
+  │ Notional traded          │ $828,┤
+  │ Total execution friction │ $792.08 (9.57 bps) │                  
+  └──────────────────────────┴────────────────────┘            
+                                                                     
+  Slippage by coin
+                                                                     
+  ┌──────┬───────┬────────┬────────┬─────────────────┬───────────┐
+  │ Coin │ Fills │  Avg   │ Median │     Total $     │    vs     │
+  │      │       │  Slip  │        │                 │ Notional  │
+  ├──────┼───────┼────────┼────────┼─────────────────┼───────────┤   
+  │ BTC  │ 94    │ -0.17  │ +0.67  │ -$47.30         │ ⚠️      │ +6.38 bps │   
+  │      │       │ bps    │        │                 │           │   
+  └──────┴───────┴────────┴────────┴─────────────────┴───────────┘
+                                                                     
+  BTC is actually getting slightly FAVORABLE slippage (-1.75 bps =   
+  you're filling at slightly better than signal close on average).
+  BTC is deep and liquid; 14 minutes of drift tends to mean-revert.  
+                                                                     
+  SOL is brutal. +6.38 bps of slippage per trade — that's nearly as
+  bad as the fees themselves. SOL is thinner and more volatile over  
+  the 14-min delay between signal and fill.                    
+                                                                     
+  Slippage by side — the smoking gun          
+                                                 
+  ├──────┼───────┼───────────┼─────────────────────┤
+  │ BUY  │ 136   │ -1.83 bps │ -$21.50 (favorable) │                 
+  ├──────┼───────┼───────────┼─────────────────────┤           
+  │ SELL │ 152   │ +3.38 bps │ +$223.45 ⚠️          │                 
+  └──────┴───────┴───────────┴─────────────────────┘
+                                                                     
+  Your SELLS are the execution problem. Buys get mildly favorable
+  prices on average. Sells bleed $223 because by the time the fill   
+  goes through, prices have drifted further against you.
+                                                                     
+  This is consistent with mean-reversion st                                                
+  ┌──────────┬──────┬──────┬────────────┬────────┬────────┬──────┐
+  │   Time   │ Coin │ Side │  Signal    │  Fill  │ Slip   │ Cost │   
+  │          │      │      │   Close    │        │  bps   │      │
+  ├──────────┼──────┼──────┼────────────┼────────┼────────┼──────┤   
+  │ Apr 12   │ SOL  │ SELL │ $82.02     │ $81.53 │ +60    │ -$47 │
+  │ 23:14    │      │      │            │        │ bps    │      │   
+  ├──────────┼──────┼──────┼────────────┼────────┼────────┼──────┤
+  │ Apr 12   │ ETH  │ BUY  │ $2,198.50       │      │            │        │ bps    │      │   
+  ├──────────┼──────┼──────┼────────────┼────────┼────────┼──────┤
+  │ Apr 12   │ SOL  │ BUY  │ $82.08     │ $82.92 │ +102   │ -$25 │   
+  │ 20:44    │      │      │            │        │ bps    │      │   
+  └──────────┴──────┴──────┴────────────┴────────┴────────┴──────┘
+                                                                     
+  9 of the top 15 worst slippage events are on ETH or SOL buys during
+   high-volatility moments. A 93-102 bps slippage on a single trade
+  means prices moved 1% against you in the 14 min between signal and 
+  fill. On a $4K position, that's ~$40 lost purely to execution      
+  delay.
+                                   he combined friction picture               
+                                                                     
+  ┌────────────────┬─────────┬──────────┐                      
+  │     Source     │  Cost   │   Bps    │                            
+  ├────────────────┼─────────┼──────────┤
+  │ Fees           │ $590.13 │ 7.13     │                            
+  ├────────────────┼─────────┼──────────┤                      
+  │ Slippage       │ $201.95 │ 2.44     │     
+  ├────────────────┼─────────┼──────────┤ 
+  │ Total friction │ $792.08 │ 9.57 bps │
+  └────────────────┴─────────┴──────────┘   
+  1. BTC has negative slippage (favorable). Execution is not a
+  problem on BTC. BTC-only would have practically zero slippage cost.
+  2. SOL slippage alone is $178 — accounts for ~50% of your total 
+  drawdown. Dropping SOL eliminates not just fees but also half your 
+  slippage bleed.                         
+  3. ETH BUY slippage is outsized. Several +80-100 bps events. Likely
+   related to thin depth or spread widening during your 30-min bar   
+  signals.                                
+                                                                     
+  Causal hypothesis                                                  
+  
+  The 14-minute delay between bar close and fill execution is the    
+  root cause. Two possibilities:                               
+
+  Option A: Reduce the delay. Fire signals at :05 instead of :14 (if 
+  infrastructure allows). Cuts 60% of the drift window.
+                                                                     
+  Option B: Use limit orders at signal_close. Elinates slippage but
+   accepts fill risk (may miss trades). At 2.5 bps maker fee vs 6.5
+  bps taker, this could save ~4 bps per trade even if you miss 40% of
+   fills — the ones that don't hit your limit were the ones already  
+  moving against you anyway.
+                                                                     
+  Option C: BTC only. Removes the coins where slippage is eating you
+  alive. Also removes the fee problem. Solves both in one move.
+
+  Stacked sensitivity (combining what we know)                       
+                                          
+  Per round trip, your current state is:                             
+  - Directional edge: ~+$0.87                                        
+  - Fees: ~$3.90                              
+  - Slippage: ~$1.40                                                 
+  - Net expectancy per trade: -$4.43                           
+                                                                     
+  BTC-only + maker-orders shifts to:          
+  - Direconal edge: ~+$2.60 (BTC has better edge)                  
+  - Fees: ~$1.50 (maker rate)                                  
+  - Slippage: ~-$0.50 (BTC is favorable)                             
+  - Projected expectancy: +$1.60 per trade    
+                                                                     
+  Over 46 BTC trades × $1.60 = +$73 over the 4-day window, vs actual
+  -$354. $427 swing.                                                 
+                                                      
+
+what do you think abut this.  based on your findings.
+
+---
+
+can yo look at the irtual machine on the current data i have maker order and 02 with trading data?
+
+---
+
+but this goes against the fact that the best hting for the model overall to maximize return is volume of trades.  wont the absolute returns just crater as a result?
+
+---
+
+also cant you Investigate:                                              
+  - Why does LIVE have 188 fills vs PAPER-CB-EARLY's 111 over the same 3-day window? That's a 70% gap and it means your "timing comparison"     
+  isn't actually comparing the same strategy. Find the cause before trusting any :02 vs :14 conclusion.
+
+---
+
+hmm can you pull the 5 minute candles and test it at different incriements on the backtest
+
+---
+
+woudl you recommend making this change fo rht elive cash strategy now and then letting it run for all three coins as a test?
+
+---
+
+what about running bitcoin and sol only and cutting ETH bc of the very high fees the 9 bps?
+also the HL paper strategy we initially started with yo should look at. bc it was firing at 15 and 45 and crushing it.  Can you read this one carefully and see the logic it is working iwth that is performing so well? it has over 1000 trade now
+
+---
+
+Paper's +1540% return in 18 days isn't a better strategy. It's the strategy getting zero execution drag. The live version is running ~15 min  
+  behind where paper is, and that's where 40-60% of the edge is dying. 
+
+are you sure this is true. I was pretty sure it was pulling at the price that is at 15 minutes. I asked this before and thats what I was told.
+
+---
+
+we've back tested against HL and Coinbase.  Paper is still acuumulating.  But yes run the comparison.
+
+---
+
+The strategy's edge is partially HL-specific. When fills happen against CB prices, a meaningful chunk of that edge disappears.      
+
+this is not true, you've backtested on CB data and it performs better.
+
+---
+
+can you check the divergence of decisions between them and analyze the performace impact. I beleive it is somewhere in the neightborhood of 22 to 25% divergence of strategy which is just noise.
+
+---
+
+yes please.
+
+---
+
+i have one more idea.  I dont know if you can test this or not and tel lme if you cant rather than fake it.  What if we ran the CB Live trade as a copy of the HL Paper trade. By doing so they make the sme decisions.  HL has been remarkably consistent. and the price difference from exchange to exchange may be mminimal if we factor into account the wins and minimum hold time of 30 minutes.  whats wrong with this concept
+
+---
+
+hmmm can you backtest on 1 or 5 minute candles the pricing drift.  How can we look at and derisk some of your issues.  Lets look at them each and come up with opportuntie to test or derisk each in isolation.
+to answer your question CB is a deeper book and it has cleaner tax and stuff in the US so its just easier to start on.  Lets adress each one of your issues sytematically dont skip any
+
+---
+
+1c. Reconciliation fees — this is the hidden killer.                                                                                                                   
+  - +70% fee uplift costs $11,892 of edge. Bigger than slippage.                                                                                                         
+  - Root cause: live trader always submits an order even when position ≈ target. The paper sim's SKIP check (already at target, skip) isn't running in live, so live     
+  generates extra reconciliation fills. We documented this earlier: 77 "SKIP" events on paper, 0 on live.                                                                
+  - Derisk path: engineering fix in live/trader.py. Add the same SKIP check before calling place_market_order. If |current_pos − target| < tolerance, skip the order     
+  entirely. This ISN'T a strategy change — it's closing a bug that's costing real money.  
+on this. if we're mirroring does this solve anyway?
+
+---
+
+can you explain what reconciliation means and why it happens and has it actually been happening in the live tarding configuration?  maybe this is the bug? and just fixing it would actually adress the biggest issue and why we're loosing and churning fees.
+
+---
+
+okay but heres the thing. there were a couple of errors when the algo wasnt working that cascaded into 200 dollar losses. You can see when it paused trading.  And that cascaded through'/Users/danielwilloughby/Desktop/Screenshot 2026-04-14 at 12.20.34 PM.png'  so if we're closing the gap between that AND the few bugs we might actually be on track.
+
+---
+
+yes but look at the actual percentage returns of 400 on 10k and 13.5 on 150ish. are the nubers closer?
+
+---
+
+what do you think abotu this feedback:
+
+2. The per-coin edge question is still unaddressed                              
+                                                               
+  The priority list skips over what the data keeps screaming: BTC is structurally 
+  different from ETH/SOL.                 
+
+  ┌──────────┬───────┬───────┬───────┐                                            
+  │          │  BTC  │  ETH  │  SOL  │
+  ├──────────┼───────┼───────┼───────┤                                            
+  │ Win rate │ 60.9% │ 47.7% │ 49.2% │                         
+  ├──────────┼───────┼───────┼───────┤
+  │ Fee bps  │ 5.08  │ 9.65  │ 6.59  │        
+  ├──────────┼───────┼───────┼───────┤    
+  │ Net P&L  │ -$32  │ll stay in the 6-7 bps zone. That's still 2-3x BTC's maker cost.
+                                                                                  
+  And the ETH 47.7% win rate over 80 fills isn't small-sample noise. It's below
+  coin-flip. That IS a signal issue, not pure execution.                          
+                                                               
+  The "don't cut coins" claim from the previous reframe still doesn't match the   
+  data. It's fine to say "run maker orders first, THEN re-measure per-coin," but
+  don't pre-declare the coin question closed.                                     
+
+ Your list:                                                   
+  1. Fix SKIP bug                         
+  2. Investigate CB cascade
+  3. Review kill-flag behavior                                                    
+  4. Maker orders             
+                                                                                  
+  I'd reorder:                                                 
+                                          
+  1. Fix SKIP bug — agree, trivial, ship immediately. +$77/day is real money.
+  2. Fix the DD trigger calibration (subset of #3 in your list) — three trips in  
+  30 hours is a pattern, not noise. The 5% threshold is measuring against inflated
+   mark-to-market peaks. Fixing this prevents the $463-style cascade from         
+  recurring. Higher leverage than investigating the past one.  
+  3. Maker orders pilot — you already have shadow-mode instances. Just start      
+  reading their output. No new infra needed.                   
+  4. Investigate past CB cascade mcs — useful post-mortem but less urgent   
+  than preventing the next one.                                
+  5. Per-coin review after 2 weeks of data — run maker orders first, re-measure   
+  per-coin edge with better execution, then decide.
+                                                                                  
+  On the fix sketch                                            
+                                                                                  
+  The 10-line patch in coinbase_client.py looks right. Two concerns:
+                                                                                  
+  1. Hard-coded $200 threshold. Match whatever paper uses dynamically — pull from
+  config. If paper's threshold changes, live should inherit it automatically.     
+  2. No re-entry check. If you skip a small adjustment this bar, the next bar
+  might compound the drift. Add a tracker: if you've skipped N consecutive bars   
+  for the same symbol, force the next trade regardless. Otherwise uld drift
+  from target by 2-3× over a couple bars.                                         
+                                                                                  
+  Otherwise clean, surgical, testable. I'd ship it.
+
+You are free and should disagree if its not helpful.  This is not my thoguht so I need you to carefully consider it
+
+---
+
+also jsut a thoguht but the paper HL strategy doesnt have a kill-flag.  Maybe we need to remove it so the behaviors have time to sync properly since thats been so stable.
+
+---
+
+I agree with all three of these points:
+
+ 1. Widen the DD threshold from 5% → 10-12%.                                                                                                                            
+  - This is still below any catastrophic-scenario threshold (30%+ for a flash crash)
+  - But above the strategy's natural drawdown distribution (max ~4% in backtest, ~5-8% in current live conditions)                                                       
+  - Stops the "trips on a normal pullback" pattern we saw this week                                               
+                                                                                                                                                                         
+  2. Change the halt action from flatten-and-halt to halt-new-entries only.                                                                                              
+  - When triggered, STOP opening new positions                                                                                                                         
+  - Let existing positions ride to their natural TP/SL exits                                                                                                             
+  - This is the biggest single lever — it prevents the "forced flatten at the worst price" cascade                                                                       
+  - Paper's edge comes partly from letting positions complete. A halt-only-new-entries policy preserves that while still protecting against the strategy going haywire   
+                                                                                                                                                                         
+  3. Auto-reset after cooldown, not manual intervention.                                                                                                                 
+  - Currently: kill-flag persists until a human removes it → multiple cron fires detect it → cascade                                                               
+  - Better: auto-clear after 2 hours of no new DD breach                                                                                                                 
+  - If the strategy breaches again in that cooldown, the problem is real and manual review is appropriate                                                                
+  - If it was a transient blip, cooldown self-heals without human-in-the-loop failure                                                                      
+
+I also think we should fix the skip bug so it is the same as paper.  I do not want to do these actually yet but do want to start making a list.  can you write instructions for adjustments with the explaination and why logic, and evidence so we can do this when we're ready I have a few other things too but dont want to lose this. 
+
+regarding the Kill flag trigger, one was a misclaculated high based on a clsoe not happening fast enough and showing an additional 800 dollars and then disappearing, creating a fake water mark.  The other was my misunderstanding fee calculations, and again creating a false high watermark which you can investigage and we may be able to address as well.  We also have a kill switch at 10% anyway so we can set the daily at the same level to be safe.
+
+---
+
+lets do the HWM calculation check now and see where this is pulling from and the implications Once you have determine if this changes your recommendation at all.
+
+---
+
+okay good. heres one more thing I've been doing some analysis on the idea of maker vs taker.  
+
+read it all and then we shoudl do our own diligence and thinking independnetly to determine how we best use this or if we dont at all for a while.
+
+Here's the maker shadow data — fill ratios and price deltas vs live:
+
+  Fill ratios (107 live trades shadowed over 3 days)
+
+  ┌──────────────┬──────────────────────────────┬────────┬────────┬───────────┐
+  │ Shadow Level │       Spread Position        │ Filled │ Missed │ Fill Rate │
+  ├──────────────┼──────────────────────────────┼────────┼────────┼───────────┤
+  │ Aggressive   │ 90% into spread (Near Cross) │ 85     │ 22     │ 79.4%     │
+  ├──────────────┼──────────────────────────────┼────────┼────────┼───────────┤
+  �levels fill 75-79% of the time — higher than I would have guessed. The
+  spread between most aggressive and most passive is only ~5 percentage points of
+  fill rate.
+
+  Price delta when maker fills vs actual live taker fill
+
+  ┌──────────────┬───────────────────────┬───────────────────────────────┐
+  │ Shadow Level │ Avg Price Improvement │ Total $ Saved (vs live fills) │
+  ├──────────────┼───────────────────────┼───────────────────────────────┤
+  │ Aggressive   │ +2.81 bps             │ +$104.62                      │
+  ├──────────────┼───────────────────────┼────────────────────────────────────────────────┘
+
+  Counter-intuitive finding: passive gets the BEST price when it fills. Makes
+  sense — passive only gets hit when the market comes to you, so you always get
+  the "right side" of the spread. Aggressive gets filled more often but at
+  slightly worse prices because it's closer to where live would have paid anyway.
+
+  Fee savings (identical across all levels)
+
+  - Taker fees actually paid (live): $335.66 (on the 107 shadowed trades)
+  - Maker fees hypothetical: $194.40
+  - Fee delta: +$141.26 (42% fee reduction)
+
+  This is a flat ~4 bps savings per trade (6.5 bps taker → 2.5 bps maker).
+
+  Total improvement per level (price + fees combined)
+
+  ┌─────────────┬───────┬──────────────┬────────────┬───────────┬──────────┐
+  │   Shadow    │ Fill  │    Price     │    Fee     │   │ $141.26    │ $245.88   │ $2.30    │
+  ├─────────────┼───────┼──────────────┼────────────┼───────────┼──────────┤
+  │ Mid         │ 78.5% │ $105.97      │ $141.26    │ $247.23   │ $2.31    │
+  ├─────────────┼───────┼──────────────┼────────────┼───────────┼──────────┤
+  │ Passive     │ 74.8% │ $137.72      │ $141.26    │ $278.98   │ $2.61    │
+  │             │       │              │            │ ⭐        │          │
+  ├─────────────┼───────┼──────────────┼────────────┼───────────┼──────────┤
+  │ Quarter     │ 74.8 per 100 trades. That's the real cost of passive: positions you'd have
+  wanted to rotate but didn't. The dollar savings shown above are on the FILLED
+  trades — they don't account for P&L impact of the missed trades.
+
+  The big finding
+
+  All four maker strategies would have improved the window by ~$245-$279 compared
+  to the actual taker execution. Given the actual live loss was ~$428 over this
+  same window, maker orders alone would have closed ~60% of the loss.
+
+  Combined with SKIP bug fix (~$231 savings per earlier analysis):
+  - Maker: ~$279 (best case, passive)
+  - SKIP fix: ~$231
+  - Total: ~$510 improvement
+  - Baseline loss: -$428
+  - Projected outcome with both fixes: +$82 (roughly breakeven to slightly
+  positive)
+
+  Open question the data can't answer yet
+
+  The 22-27 "missed" trades — what would the P&L impact have been? Two scenarios:
+
+  - Best case: those misses were trades that would have LOST money (you got lucky
+  not filling). Net improvement = improvement shown above.
+  - Worst cashose misses were winning rotations you needed (passive left you
+  stuck in losing positions). Net improvement could be materially lower.
+
+  To answer this, you'd need to simulate what would have happened if those 22-27
+  trades hadn't fired. The live trade log has prices — we could trace what
+  position you'd have been stuck with and what the next bar's move was.
+
+You caught something important. My earlier "price improvement" analysis was
+  misleading because it only compared the FILLED trades. The shadows diverge state
+   on misses — and the compound cost is eating the savings. Let me trace exactly
+  which candles were missed.
+
+⏺ Bash(cat > /tmp/missed_fills.py << 'PYEOF'
+      import json, os…)
+  ⎿  Shadow window: 2026-04-13T00:14:03.217000+00:00 to 2026-04-14T14:44:03.4
+     72000+00:00                          
+     Live trades in shadow window: 107
+     … +36 lines (ctrl+o to expand)                                               
+                                              
+⏺ You're right — it's not an error. The shadows are genuinely underperforming     
+  because state divergence compounds. Here's the forensic trace.
+                                                                                  
+  Why the shadows show negative           
+                                                                                  
+  State divergen cause. When a maker order misses:                  
+  1. Shadow's position doesn't update     
+  2. Next cron fires with wrong position assumption                               
+  3. New target trades are calculated from wrong baseline                         
+  4. Each subsequent decision compounds the error                                 
+                                                                                  
+  Look at the actual P&L:                                      
+                                                                                  
+  ┌───────────────┬──────────┬───────┬───────┬────────────┬──────────┐
+  │    Shadow     │ Realized │ Fees  │  Net  │ Cur Equity │ Equity Δ │            
+  ├───────────────┼──────────┼───────┼───────┼──� │            
+  ├───────────────┼──────────┼───────┼───────┼────────────┼──────────┤
+  │ Mid           │ -$320    │ -$155 │ -$475 │ $9,499     │ -$501    │
+  ├───────────────┼──────────┼───────┼───────┼────────────┼──────────┤            
+  │ Passive       │ -$272    │ -$143 │ -$415 │ $9,555     │ -$445    │            
+  ├───────────────┼──────────┼───────┼───────┼────────────┼──────────┤            
+  │ Quarter       │ -$278    │ -$143 │ -$420 │ $9,549     │ -$451    │            
+  └───────────────┴─────────�broken
+  state. The real delta is NEGATIVE.                                              
+                                                                                  
+  The 27 missed candles for passive (the exact list)
+                                                                                  
+  ┌──────────────┬─────┬────────┬───────────┬──────────┬──────────────────────┐
+  │  Time (UTC)  │ Sym │ Action │    Px     │ Live PnL │       Outcome        │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤
+  │ Apr 13 03:44 │ ETH │ BUY    │ $2,195    │ —        │ open missed          │   
+  ├──────────────�──────────────┤   
+  │ Apr 13 05:44 │ SOL │ BUY    │ $81.70    │ —        │ open missed          │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤   
+  │ Apr 13 08:44 │ BTC │ BUY    │ $70,700   │ —        │ open missed          │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤
+  │ Apr 13 08:44 │ ETH │ BUY    │ $2,184.50 │ —        │ open missed          │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼─────────────� │ BUY    │ $72,363   │ —        │ open missed          │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤
+  │ Apr 13 17:44 │ BTC │ SELL   │ $72,450   │ +$4.35   │ WIN missed ❌        │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤
+  │ Apr 13 17:44 │ ETH │ SELL   │ $2,236    │ +$49.50  │ BIG WIN missed ❌    │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤
+  │ Apr 13 17:44 │ SOL │ SELL   │ $83.52            │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤
+  │ Apr 13 22:44 │ SOL │ BUY    │ $85.80    │ —        │ open missed          │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤
+  │ Apr 13 23:44 │ BTC │ SELL   │ $74,600   │ -$7.75   │ LOSS dodged          │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤
+  │ Apr 14 00:14 │ ETH │ SELL   │ $2,364.50 │ -$16.15  │ LOSS dodged          │   
+  ├───┼───────────┼──────────┼──────────────────────┤
+  │ Apr 14 05:44 │ SOL │ SELL   │ $85.74    │ -$24.73  │ BIG LOSS dodged ✓    │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤
+  │ Apr 14 12:44 │ BTC │ BUY    │ $74,345   │ -$0.75   │ loss dodged          │   
+  ├──────────────┼─────┼────────┼───────────┼──────────┼──────────────────────┤
+  │ Apr 14 12:44 │ ETH │ BUY    │ $2,372    │ -$2.40   │ loss dodged          │   
+  ├──────────────┼─────┼────────┼───────                                                                      
+  The Apr 13 17:44 UTC rotation was THE winning candle of the 3-day window:
+  - BTC SELL +$4.35                                                               
+  - ETH SELL +$49.50                                           
+  - SOL SELL +$6.30                                                               
+  - Total winning rotation: +$60.15 in one bar
+                                                                                  
+  Passive missed ALL THREE closes. The ETH +$49.50 was the single biggest winning
+  close of the window. Missing that one candle erases half the fee savings from   
+  every other bar that fills.             
+                                                                                  
+  Net scorecard for passive's misses                                              
+                                                                                  
+  ┌─────────────────�────────────┐           
+  │                Category                │ Count │      Live $      │           
+  ├────────────────────────────────────────┼───────┼──────────────────┤
+  │ Missed opens (state divergence begins) │ 7     │ n/a              │           
+  ├────────────────────────────────────────┼───────┼──────────────────┤
+  │ Missed winning closes ❌               │ 9     │ +$85.00 missed   │           
+  ├────────────────────────────────────────┼───────┼──────────────────┤
+  │ Missed losing closes (dodged) ✓        │ 11    │ +$101..84          │           
+  └────────────────────────────────────────┴───────┴──────────────────┘
+                                                                                  
+  So the direct benefit of missing = +$99.84. But the shadow ended up $91 WORSE 
+  than live in equity. That $91+ difference is the compounding cost of state      
+  divergence — holding wrong positions into the next bars, placing wrong-sized
+  trades based on stale assumptions, and paying to unwind them later.             
+  
+  Your intuition confirmed                                                        
+                                                               
+  Dan, you said:
+                                                                                  
+  ▎ "winning is consolidated in certain candles and not uniform. with a lot of 
+  ▎ small churning in between. So missi                                            
+  The data proves this exactly. Look at the distribution:
+  - 9 winning closes missed: +$85 total (avg +$9.44 per win)                      
+  - 11 losing closes dodged: -$101 total (avg -$9.21 per loss) 
+                                                                                  
+  Those averages look symmetric, but one single winning close (ETH +$49.50) is 
+  half of all the winning P&L missed. Without that one trade, missed wins would be
+   only +$35 vs dodged losses +$101 = strong edge for missing. 
+                                                                                  
+  With the ETH +$49.50, missed winners = $85 vs dodged losers = $101 → close to   
+  breakeven on bar selection, BUT the compounding state drift still costs $91     
+  extra.                                                                          
+                                                                                  
+  What this means for maker strategy design
+                                                                                
+  Passive doesn't work as-is because:                          
+  1. It has favorable fill RATES (75%) and favorable prices WHEN it fills
+  2. But the 25% of missed fills include the rare concentrated winners   
+  3. The state divergence from misses compounds into $91 of extra cost            
+                                              
+  Three design questions worth exploring:                                         
+                                                               
+  1. Pattern in missed fills: Of the 27 misses, 22 were Apr 13 (17 misses before  
+  22:00 UTC) and 5 were Apr 14. Are we missing more in certain regimes?           
+  Price-level misses should be symmetric, but they're not.                        
+  2. Post-miss fallback: Could a miss → retry-as-taker strategy capture 80%+ of   
+  the concentrated winners while keeping most fee savings? Example: if passive
+  doesn't fill within 3 min, switch to ter. Fees go up on 25% of trades but you 
+  don't miss the ETH +$49.50 rotation.                         
+  3. Per-bar edge: Can we identify the "concentrated winning candles" in advance? 
+  If 17:44 UTC is a known high-edge window (significant price movement from bar),
+  maybe pre-commit to taker orders on rotations after volatile bars.              
+                                                               
+  The honest conclusion                                                           
+  
+  The dashboard is right. My earlier maker analysis was wrong. Maker orders alone,
+   implemented naively, would have done WORSE than taker by $45-235 depending on
+  aggressiveness level — because the rare winning rotations are big enough that
+  missing them costs more than the fee savings on everything else.                
+  
+  The real maker strategy needs to handle the miss case. A                        
+  maker-then-taker-fallback with a short timeout, or           
+  maker-only-on-non-rotation-bars, couldreserve fee savings without missing the
+  concentrated winners.  
+
+The data is now clean and the picture completely flipped. Maker fallback is 
+  strongly positive.                                                              
+                                                               
+  Fill times (live-shadow events only, no backfill)                               
+                                                                                  
+  ┌────────────┬────────────────────┬──────────────────┬─────────┬──────────┐     
+  │   Level    │ Fill Rate (30 min) │ Avg Time to Fill │ Median  │   Max    │     
+  ├────────────┼────────────────────┼──────────────────┼─────────┼──────────┤     
+  │ Passive    │ 95.6%              │ 3.2 min          │ │ 1.0 min │ 21.9 min │
+  ├────────────┼────────────────────┼──────────────────┼─────────┼──────────┤
+  │ Aggressive │ 96.5%              │ 2.7 min          │ 1.0 min │ 20.0 min │     
+  └────────────┴────────────────────┴──────────────────┴─────────┴──────────┘
+                                                                                  
+  The earlier 75-79% fill rate was distorted by backfill events with stale book 
+  data. True fill rate with real-time shadow is ~95-96%. Maker orders almost      
+  always fill within 30 min.
+                                                                                  
+  Median is 1 minute, meaning half of all fills happen in the first bar. 87%
+  withvel    │ Timeout │ Maker% │ Price Save │ Fee Save │ Total Save │
+  ├────────────┼─────────┼────────┼────────────┼──────────┼────────────┤
+  │ Passive    │ 60s     │ 52%    │ +$62       │ +$102    │ +$164      │          
+  ├────────────┼─────────┼────────┼────────────┼──────────┼────────────┤
+  │ Passive    │ 180s    │ 75%    │ +$159      │ +$150    │ +$309      │          
+  ├────────────┼─────────┼────────┼────────────┼──────────┼────────────┤
+  │ Passive    │ 300s    │ 83%    │ +$156      │ +$166    │ +$322 ⭐   │
+  ├──────�───┼────────┼────────────┼──────────┼────────────┤
+  │ Mid        │ 300s    │ 85%    │ +$104      │ +$171    │ +$275      │          
+  ├────────────┼─────────┼────────┼────────────┼──────────┼────────────┤
+  │ Aggressive │ 300s    │ 86%    │ +$92       │ +$172    │ +$264      │          
+  └────────────┴─────────┴────────┴────────────┴──────────┴────────────┘
+                                                                                  
+  The sweet spot: passive @ 5-min timeout                      
+                                                                                  
+  - Maker fills 83% o - Maker fallback (passive @ 5min): +$322                                        
+  - SKIP fix: +$231 (per earlier analysis)                                        
+  - Projected outcome: +$199 (flip from -$354 to +$199 = $553 swing)              
+                                                                                  
+  That's a genuine profit scenario. Now running task (b): can we predict
+  concentrated winning candles?          
+
+Dan, your intuition is dead-on — and the data is dramatic.                      
+                                                               
+  The concentrated winners finding (confirmed)                                    
+                                          
+  9 bars out of 89 produced +$738.64 in P&L. That's 10% of bars generating more   
+  than 100% of total profit (the rest netted losses).                             
+   
+  Total realized P&L over 4 days: +$141                                           
+  Big-winner-bar P&L: +$738 (524% of total)                    
+                                                                                  
+  If you somehow missed those 9 bars, you'd be down -$597 instead of +$141.       
+                                          
+  The 9 concentrated winning bars                                                 
+                                                                                  
+  ┌───────────┬───�─────────────────────────┐   
+  │ Bar (UTC) │   P&L    │   Symbols   │             Action Type              │   
+  ├───────────┼──────────┼─────────────┼──────────────────────────────────────┤
+  │ Apr 12    │ +$266.65 │ BTC+ETH+SOL │ BUY_LIVE (closed shorts at peak —    │   
+  │ 01:30     │          │             │ massive reversal win)                │
+  ├───────────┼──────────┼─────────────┼──────────────────────────────────────┤   
+  │ Apr 13    │ +$144.80 │ BTC+ETH+SOL │ SELL_LIVE (closed longs at peak)     │
+  │ 20:00     │          │             │                                      │
+  ├──        │             │                                      │   
+  ├───────────┼──────────┼─────────────┼──────────────────────────────────────┤
+  │ Apr 13    │ +$53.75  │ ETH+SOL     │ SELL_LIVE                            │   
+  │ 22:00     │          │             │                                      │   
+  ├───────────┼──────────┼─────────────┼──────────────────────────────────────┤
+  │ Apr 13    │ +$47.95  │ BTC+ETH+SOL │ SELL_LIVE                            │   
+  │ 23:00     │          │             │                                      │   
+  ├───────────┼──────────┼────────────                       │
+  ├───────────┼──────────┼─────────────┼──────────────────────────────────────┤
+  │ Apr 13    │ +$24.00  │ BTC         │ BTC only                             │
+  │ 16:30     │          │             │                                      │   
+  └───────────┴──────────┴─────────────┴──────────────────────────────────────┘
+                                                                                  
+  Pattern: 7 of 9 winning bars fire all 3 symbols simultaneously. When the        
+  strategy's multi-coin signal all fires exit in the same bar, it's catching a
+  regime-wide reversion peak.                                                     
+                ┬───────────┬─────────┐
+  │ Hour UTC │ Bars │ Wins/Losses │ Total P&L │ Avg/bar │                         
+  ├──────────┼──────┼─────────────┼───────────┼─────────┤
+  │ 01:00    │ 4    │ 1/2         │ +$184.85  │ +$46.21 │                         
+  ├──────────┼──────┼─────────────┼───────────┼─────────┤      
+  │ 14:00    │ 6    │ 3/0         │ +$111.89  │ +$18.65 │                         
+  ├──────────┼──────┼─────────────┼───────────┼─────────┤      
+  │ 17:00    │ 2    │ 1/0         │ +$60.15   │ +$30.07 │
+  ├──────────┼──────┼───────�────────┴───────────┴─────────┘
+                                                                                  
+  Hours that CONSISTENTLY lose                                 
+                                                                                  
+  ┌──────────┬──────┬─────────────┬───────────┬─────────┐      
+  │ Hour UTC │ Bars │ Wins/Losses │ Total P&L │ Avg/bar │                         
+  ├──────────┼──────┼─────────────┼───────────┼─────────┤
+  │ 23:00    │ 6    │ 1/5 ⚠️       │ -$183.56  │ -$30.59 │                         
+  ├──────────┼──────┼─────────────┼───────────┼────────               
+  │ 09:00    │ 3    │ 0/2         │ -$23.45   │ -$7.82  │                         
+  ├──────────┼──────┼─────────────┼───────────┼─────────┤      
+  │ 10:00    │ 3    │ 0/2         │ -$9.35    │ -$3.12  │                         
+  └──────────┴──────┴─────────────┴───────────┴─────────┘      
+                                                                                  
+  Actionable signals for concentrated-winner prediction
+                                                                                  
+  Signal 1: Multi-coin confluence. When the strategy wants to exit all 3 coins in
+  the same bar, it's almost always a big winner. 7/9 concentrated winners had all 
+  3 symbols. This suggests mean-reversion across correlated assets = regime-level0, 22:00 UTC). These are:                         
+  - 01:00 UTC = 9 PM EST (Asia open)
+  - 14:00 UTC = 10 AM EST (US market open)                                        
+  - 17:00 UTC = 1 PM EST (mid-US session) 
+  - 20:00 UTC = 4 PM EST (US close)                                               
+  - 22:00 UTC = 6 PM EST (after-hours)                                            
+                                          
+  These are all session transition points. Liquidity shifts tend to produce the   
+  big mean-reversion opportunities.                                               
+                                          
+  Signal 3: Hours to avoid entirely. 23:00 UTC (6 PM EST — post-session drift) has
+   5 losing bars out of 6. If you skipped 23:00 UTC trades entirely, you'd add    
+  ~$184 to P&L over 4 days.                                                       
+                                                                                  
+  Putting it all together: the compound strategy             
+                                                                                  
+  Baseline live: -$354                                         
+                                                                                  
+  With these improvements layered:            
+                                                                                  
+  ┌───────────────────────────────────────────┬──────────────────┐
+  │                    Fix                    │ Expected Savings │                
+  ├───────────────────────────────────────────┼──────────────────┤
+  │ SKIP bug                                  │ +$231            │                
+  ├───────────────────────────�─────────┤
+  │ Total projected                           │ +$737            │                
+  └───────────────────────────────────────────┴──────────────────┘
+                                                                                  
+  Baseline -$354 → projected +$383 over 4 days.                
+                                          
+  That's a +7.4% return on $10K in 4 days — which actually approaches (maybe even
+  matches) HL paper's rate.                                                       
+  
+  Honest caveats                                                                  
+                                                               
+  1. The 01:30 UTC Apr 12 winner was +$267 in ONE bar. That might be a rare event 
+  — the size implies a specific volatility regime. Don't over-weight it.
+  2. 4 days of data + 89 bars is enough s of the strategy's specific bar 
+  boundaries (it fires at :14 and :44 UTC). A different strategy period might have
+   completely different hour patterns.                                            
+  4. The "skip 23:00 UTC" rule would have missed one winner (Apr 13 23:00 UTC
+  +$47.95 close). Single-bar skip rules are fragile.
+
+---
+
+I did some further analysis. but I will also push back on the fill rate question as well.  Does this change anything in your estimation?
+https://www.adamx.ai/
+
+---
+
+I did some further analysis on all of this
+Answer: the 5-min delay penalty is real but much smaller than I feared.
+  Maker-with-fallback still wins +$275 net.
+
+  Fallback classification (passive, 5-min timeout)
+
+  - 113 shadowed trades
+  - 94 maker fills within 5 min (83.2%) — get price + fee savings
+  - 19 fallbacks to taker at 5 min (16.8%) — need to check if delay killed them
+
+  The 19 fallback trades — did price run away?
+
+  ┌───────┬─────┬─────┬─────────┬─────────┬─────────┬──────┬───────┬────────┐
+  │ Signa │     │ Sid │ Contrac │         │ Delayed │      │ Unfav │ Extra  │
+  │  l    │ Sym │  e  │   ts    │ Live $  │    $    │ Move │   ?   │  Cost  │
+  │ Time  │     │     │         │         │         │      │       │        │
+  ├───────┼─────┼─────┼─────────┼─�──────┼─────┼─────┼─────────┼─────────┼─────────┼──────┼───────┼────────┤
+  │ Apr   │     │     │         │         │         │ -1.4 │       │        │
+  │ 12    │ BTC │ BUY │ 6       │ $70,675 │ $70,665 │  bps │ no    │ -$0.60 │
+  │ 23:14 │     │     │         │         │         │      │       │        │
+  ├───────┼─────┼─────┼─────────┼─────────┼─────────┼──────┼───────┼────────┤
+  │ Apr   │     │ SEL │         │         │         │ -14. │       │ +$12.0 │
+  │ 12    │ SOL │ L   │ 20      │ $81.53  │ $81.41  │ 7    │ YES   │ 0      │
+  │ 23:14 │     │     │         │         │         │ bps  │       �    │ SEL │         │ $2,188. │ $2,189. │ +2.3 │       │        │
+  │ 12    │ ETH │ L   │ 36      │ 50      │ 00      │  bps │ no    │ -$1.80 │
+  │ 23:44 │     │     │         │         │         │      │       │        │
+  ├───────┼─────┼─────┼─────────┼─────────┼─────────┼──────┼───────┼────────┤
+  │ Apr   │     │     │         │         │         │ -4.9 │       │        │
+  │ 12    │ SOL │ BUY │ 10      │ $81.45  │ $81.41  │  bps │ no    │ -$2.00 │
+  │ 23:44 │     │     │         │         │         │      │       │        │
+  ├───────┼─────┼─────┼─────────┼─────────┼─────────┼──────┼───────┼───────�  │ 18      │ 56      │ 50      │  bps │ YES   │ +$1.90 │
+  │ 01:44 │     │     │         │         │         │      │       │        │
+  ├───────┼─────┼─────┼─────────┼─────────┼─────────┼──────┼───────┼────────┤
+  │ Apr   │     │ SEL │         │ $2,193. │ $2,195. │ +9.1 │       │        │
+  │ 13    │ ETH │ L   │ 18      │ 50      │ 50      │  bps │ no    │ -$3.60 │
+  │ 04:14 │     │     │         │         │         │      │       │        │
+  ├───────┼─────┼─────┼─────────┼─────────┼─────────┼──────┼───────┼────────┤
+  │ Apr   │     │     │         │         │         │ -4.9 │       │        │
+  �    │         │         │ bps  │       │        │
+  ├───────┼─────┼─────┼─────────┼─────────┼─────────┼──────┼───────┼────────┤
+  │ Apr   │     │     │         │ $2,256. │ $2,256. │ 0    │       │        │
+  │ 13    │ ETH │ BUY │ 18      │ 00      │ 00      │ bps  │ no    │ $0.00  │
+  │ 20:44 │     │     │         │         │         │      │       │        │
+  ├───────┼─────┼─────┼─────────┼─────────┼─────────┼──────┼───────┼────────┤
+  │ Apr   │     │ SEL │         │         │         │ -10. │       │        │
+  │ 13    │ SOL │ L   │ 10      │ $84.07  │ $83.98  │ 7    │ YES   │ +$4.50 │
+  │ 21:14 �──────┼─────────┼──────┼───────┼────────┤
+  │ Apr   │     │     │         │         │         │ +16. │       │        │
+  │ 14    │ SOL │ BUY │ 10      │ $85.71  │ $85.85  │ 5    │ YES   │ +$7.05 │
+  │ 06:14 │     │     │         │         │         │ bps  │       │        │
+  ├───────┼─────┼─────┼─────────┼─────────┼─────────┼──────┼───────┼────────┤
+  │ Apr   │     │ SEL │         │ $2,378. │ $2,379. │ +4.2 │       │        │
+  │ 14    │ ETH │ L   │ 17      │ 50      │ 50      │  bps │ no    │ -$1.70 │
+  │ 08:14 │     │     │         │         │         │      │       │        │
+  ├───────┼─────┼─────┼─────�$2,375. │ +14. │       │        │
+  │ 14    │ ETH │ BUY │ 16      │ $2,372  │ 50      │ 8    │ YES   │ +$5.60 │
+  │ 12:44 │     │     │         │         │         │ bps  │       │        │
+  ├───────┼─────┼─────┼─────────┼─────────┼─────────┼──────┼───────┼────────┤
+  │ Apr   │     │     │         │         │         │ +15. │       │        │
+  │ 14    │ SOL │ BUY │ 9       │ $85.78  │ $85.91  │ 2    │ YES   │ +$5.85 │
+  │ 12:44 │     │     │         │         │         │ bps  │       │        │
+  └───────┴─────┴─────┴─────────┴─────────┴─────────┴──────┴───────┴────────┘
+
+  Key findings on the delay penalcounterintuitive finding
+
+  Maker misses aren't always "price ran away forever." Of the 19 misses:
+  - 5 were trivial moves (<5 bps) — noise, not directional
+  - 4 reversed (price came back but outside the 5-min window)
+  - 9 ran the wrong way and stayed there within the 5-min window
+
+  So a miss doesn't guarantee a move against you. Even on the miss set, the
+  average extra cost is only $46/19 = $2.47 per fallback trade.
+
+  Full scenario P&L
+
+  ┌───────────────────────────────────────────────────┬──────────┐
+  │                     Component                     │  Value   │
+  ├───────────────────────────────────────────────────┼──────────┤
+  │ Maker fills benefit (price + fee on 94 trades)    │ +$322.49 │
+  ├──────────�────────────────┴──────────┘
+
+  Updated combined projection
+
+  ┌──────────────────────────────────────────────┬──────────────┐
+  │                   Scenario                   │ Expected P&L │
+  ├──────────────────────────────────────────────┼──────────────┤
+  │ Baseline live (4 days)                       │ -$354        │
+  ├──────────────────────────────────────────────┼──────────────┤
+  │ + SKIP bug fix                               │ +$231        │
+  ├────────────────────────────────────cts -$354 → +$152 ($506 swing).
+
+  The critical question answered
+
+  Yes, the strategy still works with the 5-min delay. The fallback penalty ($47)
+  is an order of magnitude smaller than the maker benefit ($322). Price doesn't
+  run away enough often enough to matter.
+
+  The single worst fallback was -20.5 bps (BTC SELL Apr 12 22:44) — $17 extra cost
+   on that one trade. Even that wouldn't have broken the strategy for that
+  round-trip.
+
+  Caveat worth noting
+
+  4 days is a small sample for tail events. The question "what if a fallback
+  happens during a 2% price move?" isn't well-represented in this data. A proper
+  stress test would include:
+  - High-volatility bars (FOMC, crypto-specific events)
+  - Periods of sustained one-way drift
+  - Illiquid hours (overnight Asia session)
+
+  Your 4-day data has one big move (Apr 12 01:30 = +$267 winner) but that was a
+  WIN, not a loss. A future -2% bar where a fallback happens mid-move could cost
+  more than the historical $17 max we saw.
+
+  Recommendation stthe same
+
+  1. Ship the SKIP bug fix (no risk, +$77/day)
+  2. Pilot maker-with-taker-fallback at passive + 5-min timeout (biggest lift,
+  +$69/day)
+  3. Track fallback stats in production: fill rate, avg delay penalty, worst-case.
+   Validate the -$47 total cost holds up in live.
+
+Fair question. Let me show my work honestly — and the gap between numbers has a 
+  specific technical explanation.
+                                              
+  Direct answers                          
+                                              
+  1. How many events were reclassified?                                           
+                                          
+  - Total log events: 191                                                         
+  - Filtered out (backfill): 78 (40.8%)                                           
+  - Kept as "live-shadow": 113                                                    
+                                                                                  
+  2. What threshold defined "stale"?                           
+
+  I used: abs(event_ts - trade_ts/1000) < 300 (5 minutes)                         
+                                          
+  An event was kept if the shadow was created within 5 minutes of the underlying  
+  live trade. Anything logged ter was treated as backfill.                      
+  
+  Why this matters: the first event I inspected had a 26-HOUR gap between the live
+   trade (Apr 11 19:44 UTC) and when the shadow event was logged (Apr 12 21:46
+  UTC). The book_bid/book_ask/levels in that event were from Apr 12 — when BTC was
+   at $71,335 — while actual_fill was from Apr 11 when BTC was at $73,703. That's 
+  a $2,368 mismatch that makes the comparison meaningless.
+                                                                                  
+  3. Remaining sample size:                                    
+
+  - 113 trades over 3 days (Apr 13 00:14 → Apr 14 14:44 UTC)
+  - 37 trades/day across 3 symbols        
+  - Covers 80 of 89 bars with trades
+                                                                                  
+  Meaningful but small. Definitely not enough to make production decisions without
+   more data.                                                                     
+                                                                            
+  The real explanation for the 75% → 95.6% gap                                    
+                                                                                  
+  It's NOT just the backfill filter. The bigger cause is a methodology difference 
+  I should have surfaced earlier. There are two separate issues compounding:      
+   
+  Issue 1: Backfill events (what I filtered)                                      
+                                                               
+  Backfilled shadows had book data from a different time than the live trade.     
+  Their "limit prices" weren't real — they were calculated from book snapshots    
+  1-26 hours after the trade. Any fill comparison using them is garbage.
+                                                                                  
+  Issue 2: A bug in the shadow's own fill detection code       
+                                                                                  
+  Looking at check_pendingls in                            
+  /home/openclaw/auto-researchtrading/live/maker_shadow.py:                       
+   
+  for _, row in candles.iterrows():                                               
+      candle_ts_sec = row["timestamp"] / 1000                  
+      if candle_ts_sec < placed_ts - 60:                                          
+          continue    # <-- skips the containing candle        
+      if side == "BUY":                       
+          if row["low"] <= limit_price:                                           
+              filled = True
+                                                                                  
+  The shadow uses 30-min candles. If a trade is placed at 14:14 UTC, the
+  14:00-14:30 candle has candle_ts_sec = 14:00 UTC, which is earlier than         
+  placed_ts - 60 (= 14:13) — so the shadow SKIPS the candle that contains the 
+  placement window.                                                               
+   
+  That means the shadow misses any fill th happens between 14:14 and 14:30 — a  
+  16-minute blind spot.                                        
+
+  My analysis with 1-min candles doesn't have this blind spot. It checks every    
+  1-min candle from placement onward.     
+                                                                                  
+  Effect on the numbers                                                           
+   
+  Shadow's own measurement (75-79%) is undercounted by the blind spot. My 1-min   
+  analysis (95.6%) is more accurate BUT still has measurement error because I'm
+  using 1-min candle high/low, not tick data.
+                                                                                  
+  True fill rate is likely somewhere between 85-95%. The shadow code bug
+  undercounts; my 1-min analysis might slightly overcount (a 1-min low doesn't    
+  guarantee there was a resting bid at that level).            
+                                                                                  
+  What Dan should do withhis                
+                                                                                  
+  You're right to be methodologically suspicious. I should have disclosed the
+  methodology shift in round 3 more explicitly rather than presenting "95.6%" as  
+  clean truth.
+                                                                                  
+  Three caveats worth stating clearly:                         
+                                                                                  
+  1. The 75% number is real — that's what the shadow code observes. It's just
+  biased low due to the 30-min candle blind spot in the first 0-16 min of the
+  window.
+  2. The 95.6% number is real in a different sense — if we used 1-min candle      
+  high/low to detect fills, nearly all shadowed trades would have fills in the
+  30-min window. But this doesn't guarantee the maker would actually fill; 1-min  
+  low doesn't mean there was depth at your price level. It's an upper bound.
+  3. The 113-trade sa is small. Even if the true fill rate is 90%, the        
+  per-trade P&L impact numbers ($322 improvement) have meaningful error bars. If
+  the true fill rate is 80%, the fallback count doubles (from 19 to ~40) and the  
+  $47 delay penalty scales up proportionally to ~$94 — still manageable, but
+  erodes the margin.                                                              
+   
+  Fixing the methodology                                                          
+                                                               
+  To get a trustworthy number, I'd want:
+                                                                                  
+  1. Pilot maker orders live for 1 week and measure actual fill rate with real
+  order book interactions. That's the only way to separate "price touched level on
+   1-min candle" from "order actually filled."                 
+  2. Re-run the shadow with the candle-skip bug fixed (use candle_ts_sec + 30*60 <
+   placed_ts instead of < placed_ts - 60). That would ve a true 30-min-candle
+  fill rate.                                                                      
+  3. Acknowledge the current projection has uncertainty: the ~$275 net savings
+  could plausibly be anywhere in the $150-$350 range depending on which fill-rate 
+  assumption is correct.                  
+                                                                                  
+  My honest take                                                                  
+   
+  The directional finding still holds — maker-with-fallback beats pure taker — but
+   I was too confident about the specific dollar figures. The 95.6% number should
+  have come with a caveat about the measurement method.
+                                                                                  
+  The safest framing for decision-making:     
+  - Sign of improvement: high confidence (even at 80% fill rate, net is positive) 
+  - Magnitude of improvement: medium confidence (+$150 to +$350 range over 4 days)
+  - To validate: pifor 1-2 weeks before committing to the approach            
+                                                                      
+  Thanks for pushing back. That's exactly the kind of thing I should have flagged 
+  myself.                          
+
+Please consider this and tell me how it updates your thoughts or thinking.  we do not need to adopt them but this needs thourough exploration
+
+---
+
+Just an ask thoug and you should verify directly from coinbase independently but If ETH fees are highest doest this have the greatest impact there?
+
+---
+
+okay but this is still just on misses and you explained how much we have been getting crushed by fees.  This feels like a very smart pretty significant.
+
+---
+
+okay so can we do this for Bitcoin with the circuit-breaker, and volume-timeout etc and put it at 50%.  Is it possible to rewrite the strategy to be 1/3 ETH 1/3 SOL 1/6 BTC 1/6 BTC maker/taker and update the skip and HWM? does that work at 10k?
+
+---
+
+also will we be able to track the delta between BTC with and without this way if its all off the same signal at the same time on the same candle?
+
+---
+
+theres no way to test this without doing it live imo
+
+---
+
+wait we are always doing equal splits 33% check the real thing. that doesnt change that at all.
+
+---
+
+On the implementation architecture: "split each BTC order 50/50 into maker + taker" is still the cleanest path. Paired observations per trade. Every BTC signal        
+  produces a matched (maker, taker) pair you can compare directly. No two-instance reconciliation.                                                                       
+                                                                                                                                                                         
+  On tail protections: these stay required:                                                                                                                              
+  - Per-trade fallback circuit breaker (cancel maker leg if price moves >20 bps during timeout window)
+  - Vol-aware timeout (shorter window when realized vol is high)                                                                                                         
+  - Maker disabled during DD-approach (don't let a maker miss trigger into a cascade)
+                                                                                                                                                   
+
+also '/var/folders/zj/kp9pcxqj3295xt2f20c1zgxm0000gn/T/TemporaryItems/NSIRD_screencaptureui_Y04AaD/Screenshot 2026-04-14 at 3.15.54 PM.png''/Users/danielwilloughby/Desktop/Screenshot 2026-04-14 at 3.14.45 PM.png'
+
+---
+
+'/var/folders/zj/kp9pcxqj3295xt2f20c1zgxm0000gn/T/TemporaryItems/NSIRD_screencaptureui_9bLaWo/Screenshot 2026-04-14 at 3.17.39 PM.png''/Users/danielwilloughby/Desktop/Screenshot 2026-04-14 at 3.17.47 PM.png'  sorry this is the derivative details.
+
+---
+
+I think we should update this yes. but also move forward iwth the Mkaer pilot.  it might not matter now but the next level the difference drops meaningfully and knowing how to dial this properly is worth the R&D now.
+
+---
+
+the only thing I'll point out is $50 a day compounding every day is actually signifiant off of a 10k base right?
+
+---
+
+So the maker thing is going to not move the needle but we'll be able to measure the % filled and the price variance.  And then from there we can extrapolate out the impact across all the coins which could be impactful.  This is important learning.  We'll also be able to compare real time like for like vs just doing taking correct?  If we can track and measure those thigns the learning is invalubale.
+
+---
+
+great so put this in the instructions please:
+                                                           
+  Make sure the pilot collects this data in a structured way so it's analyzable later:                                                                                   
+                                                            
+  1. Per-trade paired record: {signal_ts, signal_size, taker_fill_px, taker_fill_time, maker_limit_px, maker_fill_px (null if fallback), maker_fill_time,                
+  maker_fallback_bool, maker_fallback_penalty_bps, realized_vol_15m_at_signal}
+  2. Market context at signal time: BTC bid/ask/spread, book depth at ±5 bps, recent trade velocity. This lets you correlate fill behavior with market conditions and    
+  predict when maker works vs doesn't.                                                                                                                                   
+  3. Post-trade P&L attribution: track each leg's P&L through to close. You want to know if maker's better entry prices translate to beter total round-trip P&L or if
+  the benefit gets eroded by worse exits.                                                                                                                                
+                                                            
+  The invaluable part                                                                                                                                                    
+                                                            
+  You're buying ground truth. Right now every maker-vs-taker projection rests on either:                                                                                 
+  - Historical backtests with simulated fills (touch ≠ fill)
+  - Shadow instances with methodology bugs (we found one)                                                                                                                
+  - Theoretical CB fee math (smaller than projected)        
+                                                                                                                                                                       
+  Three weeks of paired BTC data at $10K gives you 40-60 real observations. That's enough to replace "we think maker works because [theory]" with "we know maker produces
+   X bps improvement at Y% fill rate on our specific strategy, with Z distribution of fallback penalties."
+
+---
+
+we probably should right? to make sure everything is logged
+
+---
+
+Yes please.
+
+---
+
+its this one: https://dashboard-green-nu-53.vercel.app/
+I wan tto have a visual display of all of these thigns we're testing.  It can refresh on the same schedule its already refreshing.  But yes
+
+---
+
+okay great. would it be better for you to build the steps you can directly?
+
+---
+
+okay so lets make a copy to not touch live and build it all so we can test it.
+
+---
+
+all good proceed. just be sure we test everything and verify before you test etc. goooooo
+
+---
+
+lets change the drawdown threshold to 10% please.  and then do a smoketest do everything until we're ready to deploy so the dashboard is all thats left.
