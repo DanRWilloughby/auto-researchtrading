@@ -227,6 +227,68 @@ def build_recent_events(log_dir: Path, max_events: int = 50) -> dict:
     }
 
 
+def build_phase2_maker_pilot(log_dir: Path) -> dict:
+    """Aggregate Fix 6 BTC paired maker/taker observations.
+
+    Computes fill rate, mean price improvement, fallback rate, and per-trade
+    P&L delta from the maker_pilot_*.jsonl event log.
+    """
+    records = _read_jsonl_glob(log_dir, "maker_pilot")
+    if not records:
+        return {
+            "updated_at": _now_iso(),
+            "pilot_active": False,
+            "paired_observations_total": 0,
+        }
+
+    # Filter to actual paired trades (excludes skipped_reason events with no maker leg)
+    paired = [r for r in records if r.get("maker_fill_px") is not None]
+    skipped = [r for r in records if r.get("skipped_reason")]
+    fallback = [r for r in paired if r.get("maker_fallback_bool")]
+
+    n = len(paired)
+    fill_rate_pct = (n - len(fallback)) / n * 100 if n > 0 else 0.0
+    fallback_rate_pct = len(fallback) / n * 100 if n > 0 else 0.0
+
+    # Price improvement bps: (taker_fill - maker_fill) / taker_fill * 10000 for BUY,
+    # negated for SELL. Without per-record side info, use absolute distance.
+    improvements = []
+    for r in paired:
+        t = r.get("taker_fill_px")
+        m = r.get("maker_fill_px")
+        if t and m and t > 0:
+            improvements.append(abs(t - m) / t * 10000.0)
+    mean_improvement = sum(improvements) / len(improvements) if improvements else 0.0
+
+    # Fallback penalty stats
+    penalties = [r.get("maker_fallback_penalty_bps", 0.0) for r in fallback]
+    p95_penalty = sorted(penalties)[int(len(penalties) * 0.95)] if penalties else 0.0
+    max_penalty_usd = max(
+        (abs(r.get("maker_fallback_penalty_bps", 0.0)) * r.get("signal_size", 0.0) / 10000.0)
+        for r in fallback
+    ) if fallback else 0.0
+
+    # Fill time
+    fill_times = []
+    for r in paired:
+        if r.get("maker_fill_time") and r.get("signal_ts"):
+            fill_times.append((r["maker_fill_time"] - r["signal_ts"]) / 1000.0)
+    mean_fill_time_sec = sum(fill_times) / len(fill_times) if fill_times else 0.0
+
+    return {
+        "updated_at": _now_iso(),
+        "pilot_active": True,
+        "paired_observations_total": n,
+        "skipped_signals": len(skipped),
+        "fill_rate_pct": round(fill_rate_pct, 2),
+        "fallback_rate_pct": round(fallback_rate_pct, 2),
+        "mean_fill_time_sec": round(mean_fill_time_sec, 1),
+        "mean_price_improvement_bps": round(mean_improvement, 4),
+        "p95_fallback_penalty_bps": round(p95_penalty, 4),
+        "max_single_fallback_usd": round(max_penalty_usd, 2),
+    }
+
+
 def write_all(log_dir: Path, output_dir: Path) -> dict[str, Path]:
     """Build all monitoring JSON files. Returns map of name → path written.
 
@@ -237,6 +299,7 @@ def write_all(log_dir: Path, output_dir: Path) -> dict[str, Path]:
 
     builders = {
         "phase1_attribution.json": lambda: build_phase1_attribution(log_dir, baseline),
+        "phase2_maker_pilot.json": lambda: build_phase2_maker_pilot(log_dir),
         "kill_switch_status.json": lambda: build_kill_switch_status(log_dir),
         "recent_events.json": lambda: build_recent_events(log_dir),
     }

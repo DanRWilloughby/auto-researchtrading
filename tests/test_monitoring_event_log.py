@@ -140,3 +140,78 @@ class TestFailSoft:
             delta_notional_usd=50, implied_fee_avoided_usd=0.05,
             tolerance_used_usd=200,
         )
+
+
+class TestBtcPairedTradeLogging:
+    """Fix 6: paired (maker, taker) trade observations."""
+
+    def test_writes_full_paired_record(self, tmp_path):
+        event_log.set_log_dir(tmp_path)
+        event_log.log_btc_paired_trade(
+            signal_ts_ms=1776000000000,
+            signal_size_usd=3000.0,
+            taker_fill_px=75050.0,
+            taker_fill_time_ms=1776000000500,
+            taker_fee_usd=0.45,
+            maker_limit_px=75000.0,
+            maker_fill_px=75000.0,
+            maker_fill_time_ms=1776000060000,
+            maker_fallback=False,
+            maker_fallback_penalty_bps=0.0,
+            maker_fee_usd=0.38,
+            realized_vol_15m_at_signal_bps=12.5,
+            bid=75000.0, ask=75100.0, spread_bps=13.3,
+        )
+        records = _read_jsonl(tmp_path / _today_filename("maker_pilot"))
+        assert len(records) == 1
+        r = records[0]
+        assert r["signal_size"] == 3000.0
+        assert r["taker_fill_px"] == 75050.0
+        assert r["maker_fill_px"] == 75000.0
+        assert r["maker_fallback_bool"] is False
+        assert r["realized_vol_15m_at_signal"] == 12.5
+
+    def test_records_fallback_event(self, tmp_path):
+        """When maker times out and falls back to taker, fields reflect that."""
+        event_log.set_log_dir(tmp_path)
+        event_log.log_btc_paired_trade(
+            signal_ts_ms=1776000000000,
+            signal_size_usd=3000.0,
+            taker_fill_px=75050.0,
+            taker_fill_time_ms=1776000000500,
+            taker_fee_usd=0.45,
+            maker_limit_px=75000.0,
+            maker_fill_px=75100.0,         # filled at fallback price
+            maker_fill_time_ms=1776000300000,  # 5 min later
+            maker_fallback=True,
+            maker_fallback_penalty_bps=13.3,
+            maker_fee_usd=0.45,            # taker fee since fallback
+            realized_vol_15m_at_signal_bps=20.0,
+        )
+        records = _read_jsonl(tmp_path / _today_filename("maker_pilot"))
+        r = records[0]
+        assert r["maker_fallback_bool"] is True
+        assert r["maker_fallback_penalty_bps"] == 13.3
+
+    def test_records_skip_reason(self, tmp_path):
+        """When maker leg is skipped entirely, skipped_reason populated, fill fields None."""
+        event_log.set_log_dir(tmp_path)
+        event_log.log_btc_paired_trade(
+            signal_ts_ms=1776000000000,
+            signal_size_usd=3000.0,
+            taker_fill_px=75050.0,
+            taker_fill_time_ms=1776000000500,
+            taker_fee_usd=0.45,
+            maker_limit_px=None,
+            maker_fill_px=None,
+            maker_fill_time_ms=None,
+            maker_fallback=False,
+            maker_fallback_penalty_bps=0.0,
+            maker_fee_usd=0.0,
+            realized_vol_15m_at_signal_bps=55.0,  # extreme vol → skip
+            skipped_reason="extreme_vol",
+        )
+        records = _read_jsonl(tmp_path / _today_filename("maker_pilot"))
+        r = records[0]
+        assert r["maker_fill_px"] is None
+        assert r["skipped_reason"] == "extreme_vol"

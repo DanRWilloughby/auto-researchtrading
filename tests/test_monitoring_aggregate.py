@@ -168,5 +168,70 @@ class TestWriteAll:
         out_dir = tmp_path / "out"
         log_dir.mkdir()
         written = aggregate.write_all(log_dir=log_dir, output_dir=out_dir)
-        # Should still produce all 3 files (with zero/empty data)
-        assert len(written) == 3
+        # Should produce all 4 files (Phase 1 + Phase 2 + kill switches + recent events)
+        assert len(written) == 4
+        assert "phase2_maker_pilot.json" in written
+
+
+class TestPhase2MakerPilot:
+    """Aggregator for Fix 6 paired BTC trade data."""
+
+    def test_no_records_returns_inactive(self, tmp_path):
+        result = aggregate.build_phase2_maker_pilot(log_dir=tmp_path)
+        assert result["pilot_active"] is False
+        assert result["paired_observations_total"] == 0
+
+    def test_filled_paired_observation(self, tmp_path):
+        log_path = tmp_path / "maker_pilot_2026-04-15.jsonl"
+        _write_jsonl(log_path, [
+            {"signal_ts": _now_ms(), "signal_size": 3000.0,
+             "taker_fill_px": 75050.0, "taker_fill_time": _now_ms(), "taker_fee_usd": 0.45,
+             "maker_limit_px": 75000.0, "maker_fill_px": 75000.0,
+             "maker_fill_time": _now_ms() + 60000,
+             "maker_fallback_bool": False, "maker_fallback_penalty_bps": 0.0, "maker_fee_usd": 0.38,
+             "realized_vol_15m_at_signal": 12.5, "skipped_reason": None},
+        ])
+        result = aggregate.build_phase2_maker_pilot(log_dir=tmp_path)
+        assert result["pilot_active"] is True
+        assert result["paired_observations_total"] == 1
+        assert result["fallback_rate_pct"] == 0.0
+        assert result["fill_rate_pct"] == 100.0
+        # Improvement = (75050 - 75000) / 75050 * 10000 ≈ 6.66 bps
+        assert 6.0 < result["mean_price_improvement_bps"] < 7.0
+
+    def test_fallback_event_counted(self, tmp_path):
+        log_path = tmp_path / "maker_pilot_2026-04-15.jsonl"
+        _write_jsonl(log_path, [
+            # Maker filled
+            {"signal_ts": _now_ms(), "signal_size": 3000.0,
+             "taker_fill_px": 75050.0, "taker_fill_time": _now_ms(), "taker_fee_usd": 0.45,
+             "maker_limit_px": 75000.0, "maker_fill_px": 75000.0,
+             "maker_fill_time": _now_ms(), "maker_fallback_bool": False,
+             "maker_fallback_penalty_bps": 0.0, "maker_fee_usd": 0.38,
+             "realized_vol_15m_at_signal": 12.5, "skipped_reason": None},
+            # Fallback event
+            {"signal_ts": _now_ms(), "signal_size": 3000.0,
+             "taker_fill_px": 75050.0, "taker_fill_time": _now_ms(), "taker_fee_usd": 0.45,
+             "maker_limit_px": 75000.0, "maker_fill_px": 75100.0,
+             "maker_fill_time": _now_ms() + 300000, "maker_fallback_bool": True,
+             "maker_fallback_penalty_bps": 13.3, "maker_fee_usd": 0.45,
+             "realized_vol_15m_at_signal": 22.0, "skipped_reason": None},
+        ])
+        result = aggregate.build_phase2_maker_pilot(log_dir=tmp_path)
+        assert result["paired_observations_total"] == 2
+        assert result["fill_rate_pct"] == 50.0
+        assert result["fallback_rate_pct"] == 50.0
+
+    def test_skipped_signals_separated(self, tmp_path):
+        log_path = tmp_path / "maker_pilot_2026-04-15.jsonl"
+        _write_jsonl(log_path, [
+            # Skipped (extreme vol)
+            {"signal_ts": _now_ms(), "signal_size": 3000.0,
+             "taker_fill_px": 75050.0, "taker_fill_time": _now_ms(), "taker_fee_usd": 0.45,
+             "maker_limit_px": None, "maker_fill_px": None, "maker_fill_time": None,
+             "maker_fallback_bool": False, "maker_fallback_penalty_bps": 0.0, "maker_fee_usd": 0.0,
+             "realized_vol_15m_at_signal": 55.0, "skipped_reason": "extreme_vol"},
+        ])
+        result = aggregate.build_phase2_maker_pilot(log_dir=tmp_path)
+        assert result["paired_observations_total"] == 0  # not "paired"
+        assert result["skipped_signals"] == 1

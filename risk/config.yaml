@@ -78,6 +78,21 @@ correlation_guard:
   exposure_reduction_pct: 50          # halve positions on trigger
   cooldown_intervals: 1               # wait 1 bar before re-expanding
 
+maker_pilot:
+  # Fix 6 — BTC paired maker/taker A/B. Disabled by default until ready to pilot.
+  # See PLANNED_FIXES.md Fix 6 for full design.
+  # To enable: set enabled_symbols: [BTC]
+  enabled_symbols: []                  # add BTC here to start the pilot
+  maker_fraction: 0.5                  # half of each BTC order goes to maker leg
+  base_timeout_sec: 300                # 5 min before falling back to taker
+  high_vol_timeout_sec: 60             # short timeout in volatile conditions
+  high_vol_threshold_bps: 30.0         # vol above this → use short timeout
+  extreme_vol_threshold_bps: 50.0      # vol above this → skip maker entirely (route to taker)
+  fallback_max_adverse_bps: 20.0       # cancel without fallback if price moved this much against us
+  dd_approach_buffer_pct: 20.0         # disable when DD >= 80% of CB threshold
+  poll_interval_sec: 5.0               # check fill status every N seconds
+  aggressiveness: passive              # passive = top of book (best fee)
+
 alerts:
   # All optional — system works without any of these.
   telegram_enabled: false             # FLIP TO TRUE WHEN BOT TOKEN SET

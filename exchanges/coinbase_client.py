@@ -743,3 +743,242 @@ class CoinbaseClient(ExchangeClient):
                 error_message=str(e),
                 dry_run=False,
             )
+
+    # ===================================================================
+    # Fix 6 — Maker pilot SDK wrappers
+    #
+    # Thin wrappers around the Coinbase SDK for limit orders, status polling,
+    # and cancellation. Used by place_limit_order_with_fallback() (also below)
+    # which orchestrates the maker-with-fallback flow via the testable state
+    # machine in maker_logic.run_limit_with_fallback.
+    # ===================================================================
+
+    def fetch_best_bid_ask(self, symbol: str) -> tuple[Optional[float], Optional[float]]:
+        """Return (best_bid, best_ask) from the product book. (None, None) on failure."""
+        try:
+            pid = self._product_id(symbol)
+            resp = self._client.get_product_book(product_id=pid, limit=1)
+            pd_ = _to_dict(resp)
+            book = pd_.get("pricebook") or pd_
+            if isinstance(book, dict):
+                bids = book.get("bids") or []
+                asks = book.get("asks") or []
+                bid = _to_float(bids[0].get("price")) if bids and isinstance(bids[0], dict) else None
+                ask = _to_float(asks[0].get("price")) if asks and isinstance(asks[0], dict) else None
+                if bid is not None and bid > 0 and ask is not None and ask > 0 and ask >= bid:
+                    return (bid, ask)
+        except Exception as e:
+            logger.warning("fetch_best_bid_ask failed for %s: %s", symbol, e)
+        return (None, None)
+
+    def place_limit_order_post_only(
+        self,
+        symbol: str,
+        side: str,
+        contracts: int,
+        limit_price: float,
+    ) -> Optional[str]:
+        """Place a post-only limit order (rejected if it would cross the spread).
+
+        Returns the CB order_id on success, None on failure. Caller polls status separately.
+        """
+        spec = self._product_specs.get(symbol)
+        if spec is None or contracts <= 0 or limit_price <= 0:
+            return None
+        try:
+            import uuid
+            client_order_id = str(uuid.uuid4())
+            # Round limit_price to product's price increment
+            tick = spec.price_increment if spec.price_increment > 0 else 0.01
+            rounded_price = round(limit_price / tick) * tick
+            args = dict(
+                client_order_id=client_order_id,
+                product_id=spec.product_id,
+                base_size=str(contracts),
+                limit_price=str(rounded_price),
+                post_only=True,
+            )
+            if side.upper() == "BUY":
+                resp = self._client.limit_order_gtc_buy(**args)
+            else:
+                resp = self._client.limit_order_gtc_sell(**args)
+            pd_ = _to_dict(resp)
+            success_response = pd_.get("success_response") or {}
+            return success_response.get("order_id") if isinstance(success_response, dict) else None
+        except Exception as e:
+            logger.warning("limit order placement failed: %s", e)
+            return None
+
+    def get_order_status(self, order_id: str) -> tuple[str, Optional[float]]:
+        """Poll order status. Returns (state, fill_price).
+
+        state ∈ {"filled", "open", "cancelled", "error"}
+        fill_price is the avg fill price if filled, else None.
+        """
+        try:
+            resp = self._client.get_order(order_id=order_id)
+            pd_ = _to_dict(resp)
+            order = pd_.get("order") or pd_
+            if not isinstance(order, dict):
+                return ("error", None)
+            status_str = (order.get("status") or "").upper()
+            avg_fill = _to_float(order.get("average_filled_price"))
+            if status_str == "FILLED":
+                return ("filled", avg_fill if avg_fill > 0 else None)
+            if status_str in ("OPEN", "PENDING", "QUEUED"):
+                return ("open", None)
+            if status_str in ("CANCELLED", "EXPIRED", "FAILED"):
+                return ("cancelled", None)
+            return ("error", None)
+        except Exception as e:
+            logger.warning("get_order_status failed for %s: %s", order_id, e)
+            return ("error", None)
+
+    def cancel_limit_order(self, order_id: str) -> bool:
+        """Cancel an open limit order. Returns True on success."""
+        try:
+            resp = self._client.cancel_orders(order_ids=[order_id])
+            pd_ = _to_dict(resp)
+            results = pd_.get("results") or []
+            if isinstance(results, list) and results:
+                first = results[0] if isinstance(results[0], dict) else _to_dict(results[0])
+                return bool(first.get("success"))
+            return False
+        except Exception as e:
+            logger.warning("cancel_limit_order failed for %s: %s", order_id, e)
+            return False
+
+    def place_limit_order_with_fallback(
+        self,
+        symbol: str,
+        target_notional_usd: float,
+        bid: float,
+        ask: float,
+        config,                    # MakerPilotConfig (avoid circular import — duck-typed)
+        dry_run: Optional[bool] = None,
+    ):
+        """Place a limit order, poll for fill, fall back to taker on timeout.
+
+        Returns (OrderResult, observation_dict) where observation_dict contains
+        all fields needed for paired-trade logging.
+
+        Implementation delegates the orchestration to maker_logic.run_limit_with_fallback
+        and wires in the SDK callbacks. Pure logic is fully unit-tested; this
+        method is the I/O integration shim.
+
+        Note: BLOCKING. May sleep for up to config.base_timeout_sec while polling.
+        Cron tick will pause during this — fine for 30-min bars but worth noting.
+        """
+        from .maker_logic import (
+            compute_limit_price,
+            run_limit_with_fallback,
+            LimitFillResult,
+        )
+
+        if dry_run is None:
+            dry_run = self._dry_run_default
+
+        spec = self._product_specs.get(symbol)
+        if spec is None:
+            return None, {"error": f"unknown symbol {symbol}"}
+
+        # Resolve current position to compute leg delta
+        positions = self.get_positions()
+        current_contracts = positions.get(symbol).contracts if symbol in positions else 0
+        current_notional = current_contracts * spec.contract_size * (bid + ask) / 2.0
+
+        delta_notional = target_notional_usd - current_notional
+        if abs(delta_notional) < 1.0:
+            return None, {"skipped_reason": "no delta"}
+
+        side = "BUY" if delta_notional > 0 else "SELL"
+        target_contracts = self.notional_to_contracts(
+            symbol, target_notional_usd, (bid + ask) / 2.0, round_mode="nearest"
+        )
+        delta_contracts = abs(int(target_contracts - current_contracts))
+        if delta_contracts == 0:
+            return None, {"skipped_reason": "integer contract delta zero"}
+
+        limit_price = compute_limit_price(bid, ask, side, config.aggressiveness)
+        if limit_price is None:
+            return None, {"skipped_reason": "invalid book"}
+
+        # In dry_run, simulate as if the limit fills immediately at the limit price.
+        # No real CB calls. This is paper-cb-early's behavior.
+        if dry_run:
+            return (
+                OrderResult(
+                    success=True,
+                    order_id="DRY_LIMIT",
+                    symbol=symbol,
+                    side=side,
+                    contracts=delta_contracts if side == "BUY" else -delta_contracts,
+                    notional_usd=delta_contracts * spec.contract_size * limit_price * (1 if side == "BUY" else -1),
+                    fill_price=limit_price,
+                    dry_run=True,
+                ),
+                {
+                    "limit_price": limit_price,
+                    "fill_price": limit_price,
+                    "fill_time_sec": 0.0,
+                    "is_fallback": False,
+                    "fallback_decision": None,
+                },
+            )
+
+        # LIVE: orchestrate via state machine with real SDK callbacks
+        result = run_limit_with_fallback(
+            side=side,
+            limit_price=limit_price,
+            timeout_sec=config.base_timeout_sec,
+            poll_interval_sec=config.poll_interval_sec,
+            fallback_max_adverse_bps=config.fallback_max_adverse_bps,
+            place_limit_fn=lambda: self.place_limit_order_post_only(
+                symbol=symbol, side=side, contracts=delta_contracts, limit_price=limit_price,
+            ),
+            poll_status_fn=self.get_order_status,
+            cancel_fn=self.cancel_limit_order,
+            fetch_current_price_fn=lambda: self.fetch_current_price(symbol),
+            place_market_fn=lambda: (
+                lambda r: (r.success, r.fill_price)
+            )(self.place_market_order(symbol, target_notional_usd, dry_run=False, skip_tolerance_usd=0.0)),
+        )
+
+        observation = {
+            "limit_price": limit_price,
+            "fill_price": result.fill_price,
+            "fill_time_sec": result.fill_time_sec,
+            "is_fallback": result.is_fallback,
+            "fallback_decision": result.fallback_decision,
+            "final_state": result.final_state,
+            "error": result.error,
+        }
+        if not result.success:
+            return (
+                OrderResult(
+                    success=False,
+                    order_id=None,
+                    symbol=symbol,
+                    side=side,
+                    contracts=0,
+                    notional_usd=0,
+                    fill_price=None,
+                    error_message=result.error or "limit fill failed",
+                    dry_run=False,
+                ),
+                observation,
+            )
+        notional_signed = delta_contracts * spec.contract_size * result.fill_price * (1 if side == "BUY" else -1)
+        return (
+            OrderResult(
+                success=True,
+                order_id=None,
+                symbol=symbol,
+                side=side,
+                contracts=delta_contracts if side == "BUY" else -delta_contracts,
+                notional_usd=notional_signed,
+                fill_price=result.fill_price,
+                dry_run=False,
+            ),
+            observation,
+        )

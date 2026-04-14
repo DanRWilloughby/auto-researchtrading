@@ -12,6 +12,7 @@ from .event_log import (
     log_hwm_tick,
     log_halt_event,
     log_cooldown_event,
+    log_btc_paired_trade,
 )
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "log_hwm_tick",
     "log_halt_event",
     "log_cooldown_event",
+    "log_btc_paired_trade",
 ]

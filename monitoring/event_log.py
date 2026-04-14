@@ -179,3 +179,57 @@ def log_cooldown_event(
         "dd_at_clear_pct": round(dd_at_clear_pct, 4),
     }
     _append_jsonl(f"cooldown_events_{_today_utc()}.jsonl", record)
+
+
+# ---------------------------------------------------------------------------
+# Fix 6: BTC paired maker/taker observation (per PLANNED_FIXES.md)
+# ---------------------------------------------------------------------------
+
+def log_btc_paired_trade(
+    signal_ts_ms: int,
+    signal_size_usd: float,
+    taker_fill_px: Optional[float],
+    taker_fill_time_ms: Optional[int],
+    taker_fee_usd: float,
+    maker_limit_px: Optional[float],
+    maker_fill_px: Optional[float],
+    maker_fill_time_ms: Optional[int],
+    maker_fallback: bool,
+    maker_fallback_penalty_bps: float,
+    maker_fee_usd: float,
+    realized_vol_15m_at_signal_bps: float,
+    bid: Optional[float] = None,
+    ask: Optional[float] = None,
+    spread_bps: Optional[float] = None,
+    skipped_reason: Optional[str] = None,
+) -> None:
+    """Emit a paired (maker, taker) BTC trade observation.
+
+    One record per BTC signal during pilot. Lets us measure the per-trade
+    delta between maker and taker execution under matched conditions.
+
+    Schema matches PLANNED_FIXES.md Fix 6 logging spec, with extra market
+    context fields (bid/ask/spread) for regime-conditional analysis later.
+
+    `skipped_reason` is set when maker leg was bypassed entirely (vol-aware
+    skip, DD-approach disable, or invalid book).
+    """
+    record = {
+        "signal_ts": signal_ts_ms,
+        "signal_size": round(signal_size_usd, 4),
+        "taker_fill_px": round(taker_fill_px, 4) if taker_fill_px else None,
+        "taker_fill_time": taker_fill_time_ms,
+        "taker_fee_usd": round(taker_fee_usd, 4),
+        "maker_limit_px": round(maker_limit_px, 4) if maker_limit_px else None,
+        "maker_fill_px": round(maker_fill_px, 4) if maker_fill_px else None,
+        "maker_fill_time": maker_fill_time_ms,
+        "maker_fallback_bool": maker_fallback,
+        "maker_fallback_penalty_bps": round(maker_fallback_penalty_bps, 4),
+        "maker_fee_usd": round(maker_fee_usd, 4),
+        "realized_vol_15m_at_signal": round(realized_vol_15m_at_signal_bps, 4),
+        "bid": round(bid, 4) if bid else None,
+        "ask": round(ask, 4) if ask else None,
+        "spread_bps": round(spread_bps, 4) if spread_bps else None,
+        "skipped_reason": skipped_reason,
+    }
+    _append_jsonl(f"maker_pilot_{_today_utc()}.jsonl", record)

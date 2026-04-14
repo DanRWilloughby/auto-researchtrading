@@ -73,6 +73,25 @@ class CorrelationGuardConfig:
 
 
 @dataclass
+class MakerPilotConfig:
+    """Fix 6 — BTC paired maker/taker A/B configuration.
+
+    Disabled by default. Enable per-symbol via enabled_symbols list.
+    See PLANNED_FIXES.md Fix 6 for full design.
+    """
+    enabled_symbols: list[str] = field(default_factory=list)  # ["BTC"] to enable
+    maker_fraction: float = 0.5                # half the order goes to maker leg
+    base_timeout_sec: int = 300                # 5 min limit-fill timeout
+    high_vol_timeout_sec: int = 60             # shortened timeout when vol is high
+    high_vol_threshold_bps: float = 30.0       # vol above this → use short timeout
+    extreme_vol_threshold_bps: float = 50.0    # vol above this → skip maker entirely
+    fallback_max_adverse_bps: float = 20.0     # cancel without fallback if price moved this much against us
+    dd_approach_buffer_pct: float = 20.0       # disable maker when DD >= (threshold * (1 - buffer))
+    poll_interval_sec: float = 5.0             # how often to check fill status
+    aggressiveness: str = "passive"            # passive | mid | aggressive
+
+
+@dataclass
 class AlertsConfig:
     telegram_enabled: bool = False
     telegram_bot_token: Optional[str] = None
@@ -99,6 +118,7 @@ class RiskConfig:
     data_guard: DataGuardConfig = field(default_factory=DataGuardConfig)
     order_safety: OrderSafetyConfig = field(default_factory=OrderSafetyConfig)
     correlation_guard: CorrelationGuardConfig = field(default_factory=CorrelationGuardConfig)
+    maker_pilot: MakerPilotConfig = field(default_factory=MakerPilotConfig)
     alerts: AlertsConfig = field(default_factory=AlertsConfig)
     watchdog: WatchdogConfig = field(default_factory=WatchdogConfig)
 
@@ -124,6 +144,7 @@ class RiskConfig:
             data_guard=DataGuardConfig(**(data.get("data_guard") or {})),
             order_safety=OrderSafetyConfig(**(data.get("order_safety") or {})),
             correlation_guard=CorrelationGuardConfig(**(data.get("correlation_guard") or {})),
+            maker_pilot=MakerPilotConfig(**(data.get("maker_pilot") or {})),
             alerts=AlertsConfig(**(data.get("alerts") or {})),
             watchdog=WatchdogConfig(**(data.get("watchdog") or {})),
         )
