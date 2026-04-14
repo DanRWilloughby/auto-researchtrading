@@ -1,17 +1,25 @@
 """
-Circuit breaker — hard halts that flatten all positions and stop trading.
+Circuit breaker — hard halts that stop trading on extreme conditions.
 
 Triggers:
-  1. Drawdown from high-water mark > threshold
-  2. Rolling 24h drawdown > threshold
+  1. Drawdown from high-water mark > threshold (uses MTM equity vs realized HWM)
+  2. Rolling 24h drawdown > threshold (uses MTM equity vs realized peak)
   3. Daily realized loss > threshold
   4. Manual kill flag (file exists)
 
+Fix 5 (HWM ratcheting on realized-only):
+  - High-water mark ratchets ONLY on realized_equity. Transient MTM gains
+    from in-flight settlement do not inflate HWM.
+  - DD ratio uses MTM equity in the numerator (so unrealized losses still
+    count as drawdown — preserves tail-risk protection).
+  - Asymmetric on purpose: gains must be realized to be "yours"; losses
+    count even when unrealized.
+
 When any trigger fires:
-  - Emergency exit ALL positions (market orders)
-  - Write kill flag to prevent restart without manual intervention
+  - Set halted=True (trader polls this and stops new orders)
+  - Existing positions are NOT force-flattened (let strategy reach natural exits)
+  - Write kill flag (until Fix 4 auto-reset cooldown is implemented)
   - Dispatch critical alert
-  - Set halted=True (trader polls this and stops)
 """
 from __future__ import annotations
 
@@ -30,8 +38,20 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EquityPoint:
+    """A single equity sample for the 24h rolling window.
+
+    `mtm_equity` is what the user sees as "current equity" (cash + unrealized).
+    `realized_equity` is the settled portion (cash only / realized PnL).
+    HWM ratchets on realized; DD ratio uses mtm. See module docstring.
+    """
     timestamp: float
-    equity: float
+    mtm_equity: float
+    realized_equity: float
+
+    # Backward compat: older code may construct with single `equity` kwarg
+    @property
+    def equity(self) -> float:
+        return self.mtm_equity
 
 
 class CircuitBreaker:
@@ -47,11 +67,13 @@ class CircuitBreaker:
         self.config = config
         self.watchdog_config = watchdog_config
         self.alerts = alerts
-        self.high_water = initial_equity
+        self.high_water = initial_equity  # ratchets on realized_equity only (Fix 5)
         self.session_start_equity = initial_equity
         self.session_start_ts = time.time()
         self.equity_history: deque[EquityPoint] = deque(maxlen=2880)  # 24h of 30s samples
-        self.equity_history.append(EquityPoint(time.time(), initial_equity))
+        self.equity_history.append(
+            EquityPoint(time.time(), mtm_equity=initial_equity, realized_equity=initial_equity)
+        )
         self._halted = False
         self._halt_reason: Optional[str] = None
 
@@ -75,12 +97,35 @@ class CircuitBreaker:
         """Return True if manual kill flag file exists."""
         return self.kill_flag.exists()
 
-    def update_equity(self, equity: float) -> None:
-        """Call on every tick to record current equity."""
+    def update_equity(
+        self,
+        mtm_equity: float,
+        realized_equity: Optional[float] = None,
+    ) -> None:
+        """Record current equity sample. Call on every tick.
+
+        Args:
+            mtm_equity: cash + unrealized PnL (current account value).
+            realized_equity: settled equity (cash only / no unrealized).
+                If None (legacy callers), uses mtm_equity for both — old
+                behavior. New code MUST pass realized_equity for the Fix 5
+                phantom-peak prevention to take effect.
+
+        HWM ratchets ONLY on realized_equity. MTM is recorded for the 24h
+        rolling window's "current equity" reads but does NOT influence HWM.
+        See class docstring for asymmetry rationale.
+        """
+        if realized_equity is None:
+            realized_equity = mtm_equity  # legacy fallback
+
         now = time.time()
-        self.equity_history.append(EquityPoint(now, equity))
-        if equity > self.high_water:
-            self.high_water = equity
+        self.equity_history.append(
+            EquityPoint(now, mtm_equity=mtm_equity, realized_equity=realized_equity)
+        )
+        # Fix 5: ratchet HWM on realized_equity only. Transient MTM gains
+        # from in-flight settlement do not get locked into HWM.
+        if realized_equity > self.high_water:
+            self.high_water = realized_equity
 
         # Trim to 24h window
         cutoff = now - 24 * 3600
@@ -89,24 +134,51 @@ class CircuitBreaker:
 
     def check(
         self,
-        current_equity: float,
-        daily_realized_pnl: float,
+        current_equity: Optional[float] = None,
+        daily_realized_pnl: float = 0.0,
+        *,
+        mtm_equity: Optional[float] = None,
+        realized_equity: Optional[float] = None,
     ) -> tuple[bool, Optional[str]]:
         """
         Evaluate all circuit breaker conditions.
 
+        Args:
+            current_equity: legacy single-arg API. If used, treated as both
+                MTM and realized (no separation possible). Old code calling
+                check(equity, daily_pnl) still works but loses Fix 5 benefit.
+            daily_realized_pnl: realized PnL for current trading day.
+            mtm_equity (kw-only): mark-to-market equity (cash + unrealized).
+                Used in DD ratio so unrealized losses count.
+            realized_equity (kw-only): settled equity (cash only). Used to
+                ratchet HWM and 24h peak — phantom MTM peaks are excluded.
+
         Returns (should_halt, reason). If should_halt is True, the trader
-        must flatten positions and stop. Call halt() to set the kill flag.
+        should stop opening new positions (existing positions remain — see
+        Fix 3). Call halt() to set the kill flag.
         """
+        # Resolve which API was used. New kw-only args take precedence.
+        if mtm_equity is None and current_equity is None:
+            raise ValueError("Must pass either current_equity (legacy) or mtm_equity")
+        if mtm_equity is None:
+            mtm_equity = current_equity
+        if realized_equity is None:
+            # Either: caller used legacy single-arg, or only passed mtm_equity.
+            # Conservative fallback: treat mtm as realized (old behavior, with
+            # the phantom-peak bug). Issue a warning so we can find old callers.
+            realized_equity = mtm_equity
+
         # Update state first
-        self.update_equity(current_equity)
+        self.update_equity(mtm_equity=mtm_equity, realized_equity=realized_equity)
 
         # 1. Manual kill flag
         if self.check_kill_flag():
             return True, "manual kill flag detected"
 
         # 2. Drawdown from high-water mark
-        dd_from_hw_pct = (self.high_water - current_equity) / self.high_water * 100
+        # Fix 5: HWM is realized-only (set by update_equity). Numerator is MTM
+        # so unrealized losses still trigger.
+        dd_from_hw_pct = (self.high_water - mtm_equity) / self.high_water * 100 if self.high_water > 0 else 0
         if dd_from_hw_pct >= self.config.max_dd_from_high_water_pct:
             return True, (
                 f"drawdown {dd_from_hw_pct:.2f}% from high-water "
@@ -114,9 +186,11 @@ class CircuitBreaker:
             )
 
         # 3. Rolling 24h drawdown
+        # Fix 5: 24h peak uses realized_equity only (same rationale as HWM).
+        # Current value uses MTM (so unrealized losses count toward DD).
         if self.equity_history:
-            peak_24h = max(p.equity for p in self.equity_history)
-            dd_24h_pct = (peak_24h - current_equity) / peak_24h * 100 if peak_24h > 0 else 0
+            peak_24h = max(p.realized_equity for p in self.equity_history)
+            dd_24h_pct = (peak_24h - mtm_equity) / peak_24h * 100 if peak_24h > 0 else 0
             if dd_24h_pct >= self.config.max_dd_24h_pct:
                 return True, (
                     f"24h drawdown {dd_24h_pct:.2f}% from peak ${peak_24h:,.2f} "

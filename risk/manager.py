@@ -154,16 +154,38 @@ class RiskManager:
         positions: dict[str, float],
         daily_realized_pnl: float = 0.0,
         position_snapshots: Optional[dict[str, PositionSnapshot]] = None,
+        *,
+        realized_equity: Optional[float] = None,
     ) -> None:
-        """Update internal state with latest account info. Call every tick."""
+        """Update internal state with latest account info. Call every tick.
+
+        Args:
+            equity: mark-to-market equity (cash + unrealized PnL).
+            realized_equity (kw-only, Fix 5): settled equity (cash only,
+                excludes unrealized). If provided, the circuit breaker uses
+                this for HWM ratcheting instead of MTM equity — prevents
+                phantom peaks from in-flight settlement. If None, falls
+                back to legacy MTM-only behavior.
+        """
         self._equity = equity
         self._positions = dict(positions)
         self._daily_realized_pnl = daily_realized_pnl
         if position_snapshots is not None:
             self._position_snapshots = dict(position_snapshots)
 
-        # Run circuit breaker check
-        should_halt, reason = self.circuit_breaker.check(equity, daily_realized_pnl)
+        # Fix 5: pass realized_equity for HWM ratcheting; equity (=MTM) for DD ratio.
+        if realized_equity is not None:
+            should_halt, reason = self.circuit_breaker.check(
+                mtm_equity=equity,
+                realized_equity=realized_equity,
+                daily_realized_pnl=daily_realized_pnl,
+            )
+        else:
+            # Legacy single-arg path (callers haven't been updated yet)
+            should_halt, reason = self.circuit_breaker.check(
+                current_equity=equity,
+                daily_realized_pnl=daily_realized_pnl,
+            )
         if should_halt and not self.circuit_breaker.halted:
             self.circuit_breaker.halt(reason)
 

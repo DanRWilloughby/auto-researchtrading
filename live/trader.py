@@ -476,12 +476,19 @@ def run_one_tick(
     unrealized_sum = sum(p.unrealized_pnl_usd for p in positions.values())
     equity = cash + unrealized_sum
 
+    # Fix 5: realized_equity uses CB's settled cash balance only (excludes
+    # unrealized PnL). Passed to risk manager so circuit breaker HWM ratchets
+    # only on settled gains, not on transient MTM spikes during settlement.
+    # Without this separation, HWM gets locked to phantom peaks that never
+    # existed as real account value (cause of Apr 13/14 cascade events).
+    realized_equity = cash
+
     # Use the complete P&L (including fees) for risk monitoring
     daily_pnl = daily_total_pnl
 
     logger.info(
-        f"Account: equity=${equity:,.2f} cash=${cash:,.2f} "
-        f"positions={len(positions)} "
+        f"Account: equity=${equity:,.2f} (realized=${realized_equity:,.2f}) "
+        f"cash=${cash:,.2f} positions={len(positions)} "
         f"daily_pnl=${daily_pnl:+,.2f} "
         f"(price=${daily_price_pnl:+,.2f} fees=${daily_fees:,.2f})"
     )
@@ -499,11 +506,15 @@ def run_one_tick(
     }
 
     # --- 3. Update risk manager with latest account state ---
+    # Fix 5: pass realized_equity separately so HWM ratchets on settled value
+    # only. equity (=MTM) is still used for the DD ratio so unrealized losses
+    # contribute to drawdown — see PLANNED_FIXES.md Fix 5 for the asymmetry rationale.
     risk_mgr.update_account_state(
         equity=equity,
         positions=pos_notionals,
         daily_realized_pnl=daily_pnl,
         position_snapshots=pos_snaps,
+        realized_equity=realized_equity,
     )
 
     # NOTE: Dashboard-visible state (cash/positions/equity_curve) is written at
