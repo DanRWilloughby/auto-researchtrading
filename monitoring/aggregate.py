@@ -151,12 +151,17 @@ def build_kill_switch_status(log_dir: Path) -> dict:
     hwm_ticks = _read_jsonl_glob(log_dir, "hwm_track")
     current_tick = hwm_ticks[-1] if hwm_ticks else {}
 
-    # HWM drift detection: the new HWM should ALWAYS be <= old HWM (it ratchets
-    # only on realized, old ratchets on MTM which is a superset).
-    # If new > old, something is wrong with the implementation.
+    # HWM drift detection: Fix 5's invariant is "hwm_new ratchets ONLY on
+    # realized gains, never on unrealized MTM noise." Check that property
+    # directly: if hwm_new_realized moved up on a tick where realized_equity
+    # did NOT move up, that's a phantom ratchet (the bug Fix 5 prevents).
+    # Note: we cannot compare hwm_new_realized to hwm_old_mtm directly —
+    # that assumes unrealized >= 0, which breaks when the strategy is
+    # underwater from start.
     invariant_breaches = sum(
-        1 for r in hwm_ticks
-        if r.get("hwm_new_realized", 0) > r.get("hwm_old_mtm", 0)
+        1 for prev, cur in zip(hwm_ticks, hwm_ticks[1:])
+        if cur.get("hwm_new_realized", 0) > prev.get("hwm_new_realized", 0)
+        and cur.get("realized_equity", 0) <= prev.get("realized_equity", 0)
     )
 
     switches = []
@@ -176,7 +181,7 @@ def build_kill_switch_status(log_dir: Path) -> dict:
     switches.append({
         "name": "hwm_drift_detection",
         "status": "green" if invariant_breaches == 0 else "red",
-        "current_value": f"{invariant_breaches} ticks with hwm_new > hwm_old",
+        "current_value": f"{invariant_breaches} phantom ratchets detected",
         "threshold": "0 (invariant)",
         "invariant_holds": invariant_breaches == 0,
     })
