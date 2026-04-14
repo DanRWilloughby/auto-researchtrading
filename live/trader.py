@@ -663,10 +663,13 @@ def run_one_tick(
         else:
             # --- LIVE: place real order on Coinbase ---
             try:
+                # Fix 1: pass skip_tolerance from risk config so live and paper
+                # use the same threshold and stay in sync.
                 result = client.place_market_order(
                     symbol=symbol,
                     target_notional_usd=effective_target,
                     dry_run=False,
+                    skip_tolerance_usd=risk_mgr.config.order_safety.skip_tolerance_usd,
                 )
             except Exception as e:
                 logger.error("Order placement exception: %s", e, exc_info=True)

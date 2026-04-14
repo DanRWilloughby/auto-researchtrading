@@ -99,6 +99,48 @@ def _to_dict(obj) -> dict:
     return getattr(obj, "__dict__", {}) or {}
 
 
+def should_skip_order_decision(
+    target_notional_usd: float,
+    current_notional_usd: float,
+    current_contracts: int,
+    contract_size: float,
+    current_price: float,
+    skip_tolerance_usd: float,
+) -> tuple[bool, str]:
+    """Decide whether to SKIP an order before placing it. Pure function: testable.
+
+    Returns (skip, reason). If skip=True, caller should NOT place the order.
+
+    Two layered checks:
+
+    1. Notional tolerance (Fix 1): if |target - current| notional is below
+       skip_tolerance_usd, skip. This matches paper sim's $200 tolerance and
+       prevents reconciliation churn from tiny position drifts.
+
+    2. Integer contract delta: if the rounded target-contract count equals
+       current contracts, skip. This is the original safety check — a
+       fallback for when notional delta exceeds tolerance but rounds to the
+       same integer contract count.
+
+    Also handles invalid prices defensively.
+    """
+    if current_price <= 0:
+        return True, "invalid price (<= 0)"
+
+    delta_notional = abs(target_notional_usd - current_notional_usd)
+    if delta_notional < skip_tolerance_usd:
+        return True, f"delta notional ${delta_notional:.2f} below tolerance ${skip_tolerance_usd:.2f}"
+
+    contract_notional = contract_size * current_price
+    if contract_notional <= 0:
+        return True, "invalid contract notional"
+    target_contracts = int(round(target_notional_usd / contract_notional))
+    if target_contracts == int(current_contracts):
+        return True, "integer contract delta is zero (rounds to same contract count)"
+
+    return False, ""
+
+
 class CoinbaseClient(ExchangeClient):
     """Live Coinbase perpetual futures client."""
 
@@ -498,6 +540,7 @@ class CoinbaseClient(ExchangeClient):
         symbol: str,
         target_notional_usd: float,
         dry_run: Optional[bool] = None,
+        skip_tolerance_usd: float = 200.0,
     ) -> OrderResult:
         """
         Move position to target_notional_usd (signed).
@@ -505,10 +548,16 @@ class CoinbaseClient(ExchangeClient):
         Steps:
           1. Get current price for the symbol
           2. Get current position (if any)
-          3. Convert current + target to contract counts
-          4. Compute delta contracts to trade
-          5. If abs(delta) < 1, skip (nothing to do)
+          3. SKIP check: if |target - current| notional < skip_tolerance_usd, skip.
+             This matches paper sim's tolerance and prevents reconciliation churn.
+          4. Convert current + target to contract counts
+          5. If integer-contract delta is zero, skip (rare with #3 in place but kept as safety)
           6. Place market order for delta contracts (or log if dry_run)
+
+        Args:
+            skip_tolerance_usd: minimum |target - current| notional to actually
+                place an order. Below this, returns SKIP. Default $200 matches
+                paper sim. Set 0 to revert to integer-contract-only behavior.
         """
         if dry_run is None:
             dry_run = self._dry_run_default
@@ -555,17 +604,26 @@ class CoinbaseClient(ExchangeClient):
                 dry_run=dry_run,
             )
 
-        # Current position (contracts)
+        # Current position (contracts) and notional
         positions = self.get_positions()
-        current_contracts = positions.get(symbol).contracts if symbol in positions else 0
-
-        # Target contracts (rounded to nearest for best leverage match at small capital)
-        target_contracts = self.notional_to_contracts(
-            symbol, target_notional_usd, current_price, round_mode="nearest"
+        current_position = positions.get(symbol) if symbol in positions else None
+        current_contracts = current_position.contracts if current_position else 0
+        current_notional_usd = (
+            current_contracts * spec.contract_size * current_price
         )
 
-        delta_contracts = int(target_contracts - current_contracts)
-        if delta_contracts == 0:
+        # Fix 1: SKIP tolerance check. Decline orders below threshold to avoid
+        # paying fees on essentially-no-change trades. Matches paper sim behavior.
+        # See PLANNED_FIXES.md "Fix 1" for evidence (~$77/day fee leak before fix).
+        skip, skip_reason = should_skip_order_decision(
+            target_notional_usd=target_notional_usd,
+            current_notional_usd=current_notional_usd,
+            current_contracts=current_contracts,
+            contract_size=spec.contract_size,
+            current_price=current_price,
+            skip_tolerance_usd=skip_tolerance_usd,
+        )
+        if skip:
             return OrderResult(
                 success=True,
                 order_id=None,
@@ -574,8 +632,16 @@ class CoinbaseClient(ExchangeClient):
                 contracts=0,
                 notional_usd=0,
                 fill_price=current_price,
+                error_message=skip_reason,
                 dry_run=dry_run,
             )
+
+        # Target contracts (rounded to nearest for best leverage match at small capital)
+        target_contracts = self.notional_to_contracts(
+            symbol, target_notional_usd, current_price, round_mode="nearest"
+        )
+
+        delta_contracts = int(target_contracts - current_contracts)
 
         side = "BUY" if delta_contracts > 0 else "SELL"
         abs_contracts = abs(delta_contracts)

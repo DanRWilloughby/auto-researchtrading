@@ -50,6 +50,11 @@ class OrderSafetyConfig:
     max_retries: int = 3
     retry_backoff_sec: list[int] = field(default_factory=lambda: [2, 5, 10])
     fill_verification: bool = True
+    # Skip tolerance: if |target - current| notional is below this, SKIP the order.
+    # Matches paper sim's $200 tolerance to keep both code paths in sync.
+    # Without this, live fires reconciliation orders for tiny position drifts that
+    # paper would have skipped — burning fees on essentially-no-change trades.
+    skip_tolerance_usd: float = 200.0
 
 
 @dataclass

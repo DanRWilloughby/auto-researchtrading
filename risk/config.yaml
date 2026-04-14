@@ -56,6 +56,12 @@ order_safety:
   max_retries: 3
   retry_backoff_sec: [2, 5, 10]
   fill_verification: true             # confirm position matches intent after fill
+  # Skip orders when |target - current| notional is below this. Matches paper
+  # sim's threshold so live and paper behave identically. Without this, live
+  # fires reconciliation orders for tiny position drifts (BTC contract is $750
+  # but strategy outputs in dollars), burning fees on essentially-no-change trades.
+  # See PLANNED_FIXES.md Fix 1 for evidence and rationale.
+  skip_tolerance_usd: 200             # match live/trader.py paper sim ($200)
 
 correlation_guard:
   # Reduces exposure (not full flatten) when all positions moving against us.
