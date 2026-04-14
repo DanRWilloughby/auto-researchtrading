@@ -17,6 +17,12 @@ class CircuitBreakerConfig:
     max_dd_24h_pct: float = 5.0
     max_loss_daily_usd: float = 500.0
     require_manual_resume: bool = True
+    # Fix 4: auto-clear kill flag after this cooldown expires AND DD has recovered.
+    # 0 = disabled (legacy behavior, manual intervention required).
+    # 7200 = 2 hours (recommended). Re-breach during cooldown resets the timer.
+    # Only flags written by THIS CircuitBreaker auto-clear; externally created
+    # flags require manual deletion.
+    auto_reset_cooldown_sec: int = 7200
 
 
 @dataclass

@@ -517,6 +517,15 @@ def run_one_tick(
         realized_equity=realized_equity,
     )
 
+    # Fix 4: try to auto-clear the kill flag if cooldown elapsed AND DD has
+    # recovered. This replaces manual flag deletion. Only flags that this CB
+    # wrote (last_breach_ts is set) get auto-cleared — externally created
+    # flags require manual operator action.
+    if risk_mgr.circuit_breaker.try_auto_reset(
+        mtm_equity=equity, realized_equity=realized_equity
+    ):
+        logger.info("Auto-reset: kill flag cleared, trading resuming")
+
     # NOTE: Dashboard-visible state (cash/positions/equity_curve) is written at
     # the END of the tick via _resync_state_post_orders(), after any new fills
     # have settled on Coinbase. Writing here would snapshot the pre-tick view

@@ -76,6 +76,10 @@ class CircuitBreaker:
         )
         self._halted = False
         self._halt_reason: Optional[str] = None
+        # Fix 4: track when last DD breach occurred. Auto-reset only fires
+        # if cooldown has elapsed since this timestamp AND we set this (i.e.
+        # the kill flag came from us, not external manual intervention).
+        self.last_breach_ts: Optional[float] = None
 
         # Resolve kill flag path
         self.kill_flag = Path(watchdog_config.kill_flag_file)
@@ -171,40 +175,100 @@ class CircuitBreaker:
         # Update state first
         self.update_equity(mtm_equity=mtm_equity, realized_equity=realized_equity)
 
-        # 1. Manual kill flag
-        if self.check_kill_flag():
-            return True, "manual kill flag detected"
+        # Evaluate DD conditions first (before kill flag check) so re-breach
+        # during a halted state still updates last_breach_ts (Fix 4 needs this
+        # to extend cooldown on every fresh breach, not just the first one).
+        dd_breach_reason = None
 
         # 2. Drawdown from high-water mark
         # Fix 5: HWM is realized-only (set by update_equity). Numerator is MTM
         # so unrealized losses still trigger.
         dd_from_hw_pct = (self.high_water - mtm_equity) / self.high_water * 100 if self.high_water > 0 else 0
         if dd_from_hw_pct >= self.config.max_dd_from_high_water_pct:
-            return True, (
+            dd_breach_reason = (
                 f"drawdown {dd_from_hw_pct:.2f}% from high-water "
                 f"${self.high_water:,.2f} exceeds {self.config.max_dd_from_high_water_pct}% limit"
             )
 
         # 3. Rolling 24h drawdown
-        # Fix 5: 24h peak uses realized_equity only (same rationale as HWM).
-        # Current value uses MTM (so unrealized losses count toward DD).
-        if self.equity_history:
+        # Fix 5: 24h peak uses realized_equity only.
+        if dd_breach_reason is None and self.equity_history:
             peak_24h = max(p.realized_equity for p in self.equity_history)
             dd_24h_pct = (peak_24h - mtm_equity) / peak_24h * 100 if peak_24h > 0 else 0
             if dd_24h_pct >= self.config.max_dd_24h_pct:
-                return True, (
+                dd_breach_reason = (
                     f"24h drawdown {dd_24h_pct:.2f}% from peak ${peak_24h:,.2f} "
                     f"exceeds {self.config.max_dd_24h_pct}% limit"
                 )
 
         # 4. Daily realized loss (absolute dollar)
-        if daily_realized_pnl <= -abs(self.config.max_loss_daily_usd):
-            return True, (
+        if dd_breach_reason is None and daily_realized_pnl <= -abs(self.config.max_loss_daily_usd):
+            dd_breach_reason = (
                 f"daily realized loss ${daily_realized_pnl:,.2f} exceeds "
                 f"${self.config.max_loss_daily_usd:,.2f} limit"
             )
 
+        # Fix 4: any real DD breach updates last_breach_ts, even when already halted.
+        # This keeps the auto-reset cooldown rolling forward as long as the
+        # account is actually in a bad state.
+        if dd_breach_reason is not None:
+            self.last_breach_ts = time.time()
+
+        # 1. Manual kill flag (checked AFTER DD so re-breach updates timer)
+        if self.check_kill_flag():
+            return True, "manual kill flag detected"
+
+        # No kill flag: return the DD result if any
+        if dd_breach_reason is not None:
+            return True, dd_breach_reason
+
         return False, None
+
+    def try_auto_reset(
+        self,
+        mtm_equity: float,
+        realized_equity: float,
+    ) -> bool:
+        """Attempt to auto-clear the kill flag if cooldown elapsed AND DD recovered.
+
+        Fix 4: replaces manual kill-flag deletion with automatic clearing when:
+          1. Cooldown duration has elapsed since last_breach_ts
+          2. Current MTM-based DD is below threshold
+          3. Kill flag exists (created by US — last_breach_ts is set)
+
+        Returns True iff the flag was cleared.
+
+        SAFETY: Externally created kill flags (last_breach_ts is None) are
+        NEVER auto-cleared. Manual operator action stays sticky until manual
+        removal. This prevents the auto-reset from undoing a deliberate halt.
+        """
+        if self.config.auto_reset_cooldown_sec <= 0:
+            return False  # disabled
+        if not self.kill_flag.exists():
+            return False  # nothing to reset
+        if self.last_breach_ts is None:
+            return False  # external flag — manual only
+
+        now = time.time()
+        if now - self.last_breach_ts < self.config.auto_reset_cooldown_sec:
+            return False  # cooldown not elapsed
+
+        # Verify current DD is below threshold (don't reset into deteriorating state)
+        if self.high_water > 0:
+            dd_pct = (self.high_water - mtm_equity) / self.high_water * 100
+            if dd_pct >= self.config.max_dd_from_high_water_pct:
+                return False  # still in DD — don't reset
+
+        # All conditions met — clear flag and halt state
+        try:
+            self.kill_flag.unlink()
+            logger.info("Auto-reset: kill flag cleared after cooldown")
+        except Exception as e:
+            logger.error("Auto-reset: failed to remove kill flag: %s", e)
+            return False
+        self.clear_halt()
+        self.last_breach_ts = None  # reset for next cycle
+        return True
 
     def halt(self, reason: str, create_kill_flag: bool = True) -> None:
         """Mark the trader as halted. Optionally create the kill flag file."""
