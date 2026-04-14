@@ -1076,6 +1076,35 @@ Crypto trading gains through a partnership LLC are taxed as ordinary income (sho
 
 ---
 
+## Post-Live Optimization Research (2026-04-12 — 2026-04-13)
+
+### Coinbase Backtest — Strategy Confirmed
+CB backtest Sharpe 26.11 vs HL 23.82 — strategy performs 9.6% better on Coinbase data. No parameter retuning needed. The 49% bar-by-bar direction disagreement between HL Paper and CB Live is structural noise from 6-18 bps price feed differences, not degraded signal quality.
+
+### Fee-Reduction Variants — All Rejected
+Tested 1h candles, MIN_VOTES=4 (skip weak signals), no-trade hours (02-08 UTC). 30m's extra compounding generates ~$48M more than 1h over 165 days. The extra fees it pays are ~$14M. **Compounding wins by 3.4x.** Chop days where fees exceed gross are the cost of being positioned for compounding days.
+
+### Conviction Analysis — Non-Monotonic Finding
+Added vote count logging to all signals. Backtest showed 4/5 votes produces best returns, 5/5 is weakest ("late to the party" — move already happened when all indicators agree). Hybrid maker/taker routing not viable — all conviction levels contribute positive expected value, missing 32% of trades costs more than fee savings.
+
+### Dual-Feed Variants — All Rejected
+Tested 3 strategies combining HL + CB price feeds: consensus (both agree), 10-vote pool (7/10), HL signal with CB execution. None beat the CB baseline. The directional disagreement between exchanges isn't noise to filter — it's signal. When HL says "long" and CB says "flat," HL is seeing real momentum CB hasn't priced yet. Filtering removes profitable entries.
+
+### Maker Order Analysis
+Deployed multi-level maker shadow testing 4 spread positions (at bid/ask, 25% into spread, mid-spread, near-cross). Fill rates 78-82%. Fee savings real (~$52 over 40 trades) but overwhelmed by position divergence from missed fills (~$145 worse PnL). Breakeven fill rate is ~85%. Data still accumulating.
+
+### TP Optimization Finding
+Take profit threshold sweep at deployed size 1.20. At current sizing, optimal TP shifts from 1.2% down to 0.8%:
+- TP=0.8%: Sharpe 24.23, return 4,357,487%, max DD 3.86%
+- TP=1.2% (current): Sharpe 23.82, return 3,689,345%, max DD 4.00%
+
+Improvement is real but modest (+0.41 Sharpe, +18% profit, -0.14% DD). Tradeoff: ~264 more trades on test = more fee exposure. Not yet deployed — worth paper validating first.
+
+### Core Conclusion
+**Every optimization attempt loses to the baseline.** The strategy's edge comes from volume and consistency, not from filtering, reducing frequency, or combining signals. The right approach is patience: let it compound on 30m, don't over-optimize. Current drawdown is variance + a dev-caused outage, not strategy degradation.
+
+---
+
 **END OF PROPOSAL**
 
 *This document is for discussion purposes only and does not constitute a binding agreement, investment advice, or guarantee of returns. Both parties should seek independent legal and financial counsel before proceeding.*
