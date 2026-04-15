@@ -804,9 +804,20 @@ def run_one_tick(
         price_val = trade_record.get("price", 0)
         notional_val = abs(trade_record.get("notional_usd", trade_record.get("size", 0)))
         tag = " [DRY RUN]" if dry_run else ""
+        # Signal strength suffix so cron logs show conviction inline.
+        # Metadata comes from Signal.metadata (set in strategy.on_bar):
+        #   bull_votes / bear_votes are 0-5 (mom, vshort, ema, rsi, macd)
+        #   htf is -1|0|+1 (higher-timeframe trend filter)
+        meta = trade_record.get("signal_metadata") or {}
+        bv, br, htf = meta.get("bull_votes"), meta.get("bear_votes"), meta.get("htf")
+        sig_suffix = (
+            f" | signal: bull={bv}/5 bear={br}/5 htf={htf:+d}"
+            if (bv is not None and br is not None and htf is not None and isinstance(htf, int))
+            else ""
+        )
         logger.info(
             f"{side_label} {symbol} {contracts_val} contracts "
-            f"(${notional_val:+,.2f} notional) @ ${price_val:,.2f}{tag}"
+            f"(${notional_val:+,.2f} notional) @ ${price_val:,.2f}{tag}{sig_suffix}"
         )
 
         # Telegram alert for LIVE trades only
