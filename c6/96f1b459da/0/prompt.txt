@@ -1,0 +1,69 @@
+okay so could you do this please and then we can check everything line by line to see daily p&L fees etc etc
+
+---
+
+I have a concierge support. Can you provide me with a full explaination of everytihng we can see via API and the descrepancy we're looking tto resolve so I can ask him directly
+
+---
+
+can you please look at the duration of trades and pull all of this data since we started trading live and see if we can find a reconsilliation.  It oculd be a daily P&L timing issue since Im on EST vs the cron on GMT for example.  Lets pulll all the data and investigate it.
+
+---
+
+we're not 9 bps round trip.  we're a blended 7.
+
+---
+
+can you tell me what this clears one-way on the HL paper or the backtestable data cutting out fees so we can see if its just a tough window. it shoudl eb profitable either way but this number woudl be good to know yes?
+
+---
+
+hang on can you confirm that the HL is filling at the price at 15 45. and NOT actually filling at the bar-close price? bc that could be the major difference?  And then yes also run that test please. remember its designed to fire at 14 andd 44 and the HL paper runs at 15 and 45 (just a minute later)
+
+---
+
+hang on I heard back from the concierge team. here are their responses:
+
+1. CFM runs a Start‑of‑Day (SOD) reconciliation once per US business day, early morning US Eastern, which:
+Reconciles CFM balances to the clearinghouse reports (XTP/ION).  
+Recalculates and posts intraday realized PnL and intraday fees into the CFM cash ledger, then resets those intraday stats.
+
+So yes: there is a once‑per‑day batch that effectively moves daily_realized_pnl + fee adjustments into CFM USD cash, which then flows into your portfolio total USD.
+
+2. The exact trigger time for the daily settlement is 4:30 AM ET (08:30 UTC)
+
+Components rolled into the settlement include:
+Realized P&L: Intraday profits or losses.
+Fees: Trading fees incurred during the day.
+Funding Costs: Any margin funding or fees-in-lieu-of-settle.
+Ledger Adjustments: Reconciliation of unsettled balances.
+
+3. The timing is Coinbase-specific and aligns with operational clearing runs rather than being a CFTC-required variation margin settlement. It ensures ledger reconciliation and margin adjustments are completed before the next trading day begins.
+
+4. Yes, there is a statement endpoint that shows settlement postings as individual line items. You can access daily statements via:
+https://www.coinbase.com/advanced-portfolio?tab=transactions
+
+https://accounts.coinbase.com/statements/futures
+
+5. The cost-basis method used for intraday realized P&L is FIFO (First-In-First-Out). However, discrepancies may arise due to fees, funding costs, or timing differences in settlement calculations.
+If your reconstruction doesn't match the settlement amounts, it could be due to:
+
+Fees: Intraday fees are not ledgered until the SOD process.
+Unsettled P&L: Intraday realized P&L is reconciled during the daily settlement run.
+
+lets please keep track of this trying to trace the bps delta as an open item. make a document so we dont lose detail and we can reread and comeback to it
+
+---
+
+so now that I got that feedback from the concierge what does that tell us about the fees anything?
+
+---
+
+here is his additiona response:
+I understand that can be concerning. Yes, the clearinghouse reconciliation process begins at 08:30 UTC. This is part of the Start of Day (SOD) process, which consolidates ledger values, including daily_realized_pnl, fees, funding costs, and other adjustments into the total_usd_balance.
+
+The posting of updates to the total_usd_balance visible to customers may lag by approximately 1 hour. This delay is due to the time required for ledger processing and reconciliation workflows to complete. As observed, balances typically update between 09:14 and 09:44 UTC, not immediately after the reconciliation trigger.
+
+---
+
+okay so what is next to review and identify.  Yes please run this
