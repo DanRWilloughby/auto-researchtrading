@@ -1,0 +1,20 @@
+'/Users/danielwilloughby/Desktop/Screenshot 2026-04-15 at 5.04.23 PM.png'
+this is ascreenshot from the dashboard. one thing I'm trying to udnerstand is what is happening specifically ont he big red bars.  I think its cash closing out the fees each day but it is confusing to me bc fees shoudl be included in the trade calculations each time. I know from coinbase real data I'm losing money but am confused bc our p&l tracks the fees for each trade independnetly (even if the cash is taken out in a lump sum.
+
+---
+
+can you please pull the trades around that time +/- 2 hours and tell me exactly what happened?  Its weird that one window would be so much worse than any other imo?
+
+---
+
+we need to lookat this carefully. also like I sad i'm pretty sure that that amount is the fees for the previous 24 hours of trading and its closing out... but I want you to track this back and show me the exact numbers ad details
+
+---
+
+Where are these additional trades coming from in the engine first? Could it be because sometimes we open a position and then do a round trip and open in the other direction?
+
+---
+
+'/var/folders/zj/kp9pcxqj3295xt2f20c1zgxm0000gn/T/TemporaryItems/NSIRD_screencaptureui_QVQycg/Screenshot 2026-04-15 at 5.48.19 PM.png'
+
+wait. just bc they are recorded there does not mean the dashbaord is explaying them all . there are different dashboards that all could be pulling from the same file.  SO I'm not sure you're correct. please only look at the 30m concentrade cb live records
