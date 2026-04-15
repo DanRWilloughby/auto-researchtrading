@@ -3,7 +3,7 @@
   "checkpoint_id": "d86af5f691f0",
   "strategy": "manual-commit",
   "branch": "fixes/phase2-maker-pilot",
-  "checkpoints_count": 9,
+  "checkpoints_count": 41,
   "files_touched": [
     "live/maker_shadow.py"
   ],
@@ -19,13 +19,19 @@
       "transcript": "/d8/6af5f691f0/1/full.jsonl",
       "content_hash": "/d8/6af5f691f0/1/content_hash.txt",
       "prompt": "/d8/6af5f691f0/1/prompt.txt"
+    },
+    {
+      "metadata": "/d8/6af5f691f0/2/metadata.json",
+      "transcript": "/d8/6af5f691f0/2/full.jsonl",
+      "content_hash": "/d8/6af5f691f0/2/content_hash.txt",
+      "prompt": "/d8/6af5f691f0/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 189,
-    "cache_creation_tokens": 291467,
-    "cache_read_tokens": 9577392,
-    "output_tokens": 110573,
-    "api_call_count": 104
+    "input_tokens": 7412,
+    "cache_creation_tokens": 1953576,
+    "cache_read_tokens": 137858741,
+    "output_tokens": 572986,
+    "api_call_count": 422
   }
 }

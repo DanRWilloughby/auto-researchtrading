@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "d86af5f691f0",
+  "session_id": "76641220-a0b5-4f2d-8880-548d08f455f4",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-15T21:51:43.949173Z",
+  "branch": "fixes/phase2-maker-pilot",
+  "checkpoints_count": 32,
+  "files_touched": [
+    "live/maker_shadow.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-6[1m]",
+  "turn_id": "4f61b9d3defc",
+  "token_usage": {
+    "input_tokens": 7223,
+    "cache_creation_tokens": 1662109,
+    "cache_read_tokens": 128281349,
+    "output_tokens": 462413,
+    "api_call_count": 318
+  },
+  "session_metrics": {
+    "turn_count": 63
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-15T21:51:42.858351Z",
+    "agent_lines": 50,
+    "agent_removed": 0,
+    "human_added": 57,
+    "human_modified": 9,
+    "human_removed": 0,
+    "total_committed": 116,
+    "total_lines_changed": 116,
+    "agent_percentage": 43.103448275862064,
+    "metric_version": 2
+  }
+}
