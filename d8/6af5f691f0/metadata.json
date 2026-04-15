@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "d86af5f691f0",
+  "strategy": "manual-commit",
+  "branch": "fixes/phase2-maker-pilot",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "live/maker_shadow.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d8/6af5f691f0/0/metadata.json",
+      "transcript": "/d8/6af5f691f0/0/full.jsonl",
+      "content_hash": "/d8/6af5f691f0/0/content_hash.txt",
+      "prompt": "/d8/6af5f691f0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 102,
+    "cache_creation_tokens": 122884,
+    "cache_read_tokens": 3903009,
+    "output_tokens": 38281,
+    "api_call_count": 47
+  }
+}

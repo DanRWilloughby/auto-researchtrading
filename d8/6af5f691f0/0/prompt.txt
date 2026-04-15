@@ -1,0 +1,37 @@
+can you check that the live trader is healthy right now. I havent seen a signal and I'm sitting in a short BTC that is down over 50 dollars.
+
+---
+
+please do 3
+
+---
+
+can you tell me what position the HL paper is in right now?
+
+---
+
+is a limit order a maker order or taker order on Coinbase?
+
+---
+
+can you tell me what the spread is on ETH on coinbase??
+
+---
+
+so If you set a passive ETH make you get the benefit of the .5 bps saving and the lower price? if it fills
+
+---
+
+can you make sure the live trader is working please
+
+---
+
+okay can you fix the git so its aligned.
+
+---
+
+how do these fees '/var/folders/zj/kp9pcxqj3295xt2f20c1zgxm0000gn/T/TemporaryItems/NSIRD_screencaptureui_DNF1sD/Screenshot 2026-04-15 at 4.48.15 PM.png' compare to Coinbases?
+
+---
+
+Can you please do that please is there a way to backtest it too. and determine the depth of the 3 coin perps I'm looking at BTC / ETH / SOL?
