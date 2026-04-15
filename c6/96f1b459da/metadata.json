@@ -3,7 +3,7 @@
   "checkpoint_id": "c696f1b459da",
   "strategy": "manual-commit",
   "branch": "fixes/phase2-maker-pilot",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": null,
   "sessions": [
     {
@@ -11,13 +11,19 @@
       "transcript": "/c6/96f1b459da/0/full.jsonl",
       "content_hash": "/c6/96f1b459da/0/content_hash.txt",
       "prompt": "/c6/96f1b459da/0/prompt.txt"
+    },
+    {
+      "metadata": "/c6/96f1b459da/1/metadata.json",
+      "transcript": "/c6/96f1b459da/1/full.jsonl",
+      "content_hash": "/c6/96f1b459da/1/content_hash.txt",
+      "prompt": "/c6/96f1b459da/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 238,
-    "cache_creation_tokens": 345453,
-    "cache_read_tokens": 26877555,
-    "output_tokens": 204826,
-    "api_call_count": 138
+    "input_tokens": 7528,
+    "cache_creation_tokens": 2821153,
+    "cache_read_tokens": 185661166,
+    "output_tokens": 706187,
+    "api_call_count": 498
   }
 }
