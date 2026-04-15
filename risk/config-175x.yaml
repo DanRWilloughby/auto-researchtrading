@@ -1,0 +1,56 @@
+# Risk config for 1.75x position sizing PAPER TEST ONLY
+# Relaxed position limits to accommodate 1.75x scaling
+# All other safety parameters identical to production config.yaml
+
+account:
+  nominal_capital_usd: 10000
+
+circuit_breaker:
+  max_dd_from_high_water_pct: 10.0
+  max_dd_24h_pct: 5.0
+  max_loss_daily_usd: 500
+  require_manual_resume: true
+
+flash_crash_guard:
+  enabled: true
+  poll_interval_sec: 5
+  per_position_move_pct: 8.0
+  portfolio_unrealized_pct: -8.0
+
+position_limits:
+  max_leverage: 2.5                   # 1.75x * 1.3 buffer = ~2.3x needed
+  max_notional_per_coin_usd: 8750     # 1.75x * 5000
+  max_concentration_pct: 75           # 1.75x * ~43% = ~75% max
+  max_open_positions: 3
+  allowed_symbols: [BTC, ETH, SOL]
+
+data_guard:
+  stale_candle_max_age_intervals: 2
+  price_deviation_pct: 10.0
+  funding_alert_per_8h_bps: 50
+
+order_safety:
+  max_slippage_bps: 15
+  order_timeout_sec: 30
+  max_retries: 3
+  retry_backoff_sec: [2, 5, 10]
+  fill_verification: true
+
+correlation_guard:
+  enabled: true
+  min_positions_losing: 3
+  unrealized_threshold_pct: -2.0
+  exposure_reduction_pct: 50
+  cooldown_intervals: 1
+
+alerts:
+  telegram_enabled: false
+  log_file: logs/risk_manager.log
+  heartbeat_interval_hours: 6
+  daily_summary_hour_utc: 14
+
+watchdog:
+  heartbeat_interval_sec: 60
+  max_silent_sec: 300
+  heartbeat_file: state/heartbeat
+  kill_flag_file: state/kill-175x.flag
