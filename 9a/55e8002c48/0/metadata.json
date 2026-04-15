@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "9a55e8002c48",
+  "session_id": "76641220-a0b5-4f2d-8880-548d08f455f4",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-15T22:30:25.068105Z",
+  "branch": "fixes/phase2-maker-pilot",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-6[1m]",
+  "turn_id": "2e1e26f06ebb",
+  "token_usage": {
+    "input_tokens": 7267,
+    "cache_creation_tokens": 1705799,
+    "cache_read_tokens": 149627160,
+    "output_tokens": 493651,
+    "api_call_count": 347
+  },
+  "session_metrics": {
+    "turn_count": 66
+  }
+}
