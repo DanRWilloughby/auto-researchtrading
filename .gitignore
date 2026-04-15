@@ -43,3 +43,8 @@ docker-compose.override.yml
 *.sqlite
 *.db
 secrets/
+
+# Cached market data — large, regenerable from exchange APIs
+# (see local-data/README.md for how to populate)
+local-data/*.parquet
+local-data/*.csv
