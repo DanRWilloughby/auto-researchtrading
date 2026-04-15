@@ -42,7 +42,32 @@ strategies/{strategy-id}/
 Every `engine/backtest.py` run automatically appends to `results.tsv` in the strategy directory.
 Use `--label` to name experiments, `--notes` for context, `--no-log` to skip logging.
 
+### Direct API use — REQUIRED WRAPPER
+If you call `run_backtest()` directly from a script (outside the CLI), you **MUST** use
+`engine/run_experiment.py` instead — it calls `run_backtest()` then `log_result()` and
+requires a non-empty `label` and `notes`. Calling `run_backtest()` directly without
+logging is a rule violation; the wrapper exists so the right path is the easy path.
+
+```python
+from engine.run_experiment import run_experiment
+
+result = run_experiment(
+    strategy=strategy_instance,
+    data=loaded_data,
+    label="filter-E5-only-1323-UTC",       # must be non-empty, unique-ish
+    notes="what are you testing and why",  # must be non-empty
+    strategy_path="strategies/30m-concentrated/strategy.py",
+    split="custom-944d",
+    interval="30m",
+    taker_fee=0.0006,
+    execute_delay=1,
+)
+```
+
 ## Data Integrity
 - The 1h strategy has 103 logged experiments in `strategies/1h-btc-eth-sol/results.tsv`
 - The 30m strategies must maintain the same standard — every experiment logged
 - Never let backtest results exist only in stdout or conversation context
+- If the CLI doesn't fit your workflow (custom filter wrapper, parameter sweep,
+  etc.), use `engine/run_experiment.py` — never call `run_backtest()` directly
+  without logging
