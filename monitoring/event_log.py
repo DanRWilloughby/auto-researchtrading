@@ -28,16 +28,29 @@ logger = logging.getLogger(__name__)
 
 # Default log directory. Trader sets this at startup via set_log_dir().
 _LOG_DIR: Optional[Path] = None
+# Instance name (e.g., "live", "paper-175x"). When set, filenames become
+# {prefix}_{instance}_{date}.jsonl so multiple instances writing to the same
+# log_dir don't pollute each other. Records also carry an "instance" field.
+_INSTANCE: Optional[str] = None
 
 
-def set_log_dir(log_dir: str | Path) -> None:
+def set_log_dir(log_dir: str | Path, instance: Optional[str] = None) -> None:
     """Configure where event JSONL files are written. Called once at trader startup.
+
+    Args:
+        log_dir: directory for JSONL files.
+        instance: optional instance name (e.g. "live", "paper-175x"). When set,
+            filenames are namespaced as {prefix}_{instance}_{date}.jsonl and
+            each record includes an "instance" field. This prevents multiple
+            trader instances writing to the same log_dir from polluting each
+            other's event logs.
 
     Fail-soft: if the directory can't be created, logs a warning. Subsequent
     writes will fail individually (also fail-soft).
     """
-    global _LOG_DIR
+    global _LOG_DIR, _INSTANCE
     _LOG_DIR = Path(log_dir)
+    _INSTANCE = instance if instance else None
     try:
         _LOG_DIR.mkdir(parents=True, exist_ok=True)
     except Exception as e:
@@ -58,14 +71,36 @@ def _today_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def _append_jsonl(filename: str, record: dict) -> None:
-    """Fail-soft JSONL append. Logs warnings but never raises."""
+def _filename(prefix: str) -> str:
+    """Build the log filename for a given prefix, namespaced by instance if set.
+
+    With instance set:    {prefix}_{instance}_{date}.jsonl
+    Without instance:     {prefix}_{date}.jsonl   (back-compat for tests)
+
+    The aggregator globs {prefix}_*.jsonl which matches both forms.
+    """
+    date = _today_utc()
+    if _INSTANCE:
+        return f"{prefix}_{_INSTANCE}_{date}.jsonl"
+    return f"{prefix}_{date}.jsonl"
+
+
+def _append_jsonl(prefix: str, record: dict) -> None:
+    """Fail-soft JSONL append. Logs warnings but never raises.
+
+    Accepts the log prefix (e.g. "halt_events") and resolves the full filename
+    via _filename() so instance namespacing is applied consistently. Stamps the
+    current instance into the record so downstream consumers can filter even
+    when reading a merged glob of files.
+    """
+    if _INSTANCE and "instance" not in record:
+        record = {**record, "instance": _INSTANCE}
     try:
-        path = _resolve_log_dir() / filename
+        path = _resolve_log_dir() / _filename(prefix)
         with open(path, "a") as f:
             f.write(json.dumps(record, default=str) + "\n")
     except Exception as e:
-        logger.warning("Failed to write monitoring event to %s: %s", filename, e)
+        logger.warning("Failed to write monitoring event (prefix=%s): %s", prefix, e)
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +130,7 @@ def log_skip_event(
         "tolerance_used_usd": round(tolerance_used_usd, 4),
         "skip_reason": skip_reason,
     }
-    _append_jsonl(f"skip_events_{_today_utc()}.jsonl", record)
+    _append_jsonl("skip_events", record)
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +165,7 @@ def log_hwm_tick(
         "did_new_trigger": dd_new_pct >= threshold_pct,
         "threshold_pct": threshold_pct,
     }
-    _append_jsonl(f"hwm_track_{_today_utc()}.jsonl", record)
+    _append_jsonl("hwm_track", record)
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +193,7 @@ def log_halt_event(
         "open_positions": {k: round(v, 4) for k, v in open_positions.items()},
         "marks_at_trigger": {k: round(v, 6) for k, v in marks_at_trigger.items()},
     }
-    _append_jsonl(f"halt_events_{_today_utc()}.jsonl", record)
+    _append_jsonl("halt_events", record)
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +213,7 @@ def log_cooldown_event(
         "cooldown_duration_sec": round(cooldown_duration_sec, 1),
         "dd_at_clear_pct": round(dd_at_clear_pct, 4),
     }
-    _append_jsonl(f"cooldown_events_{_today_utc()}.jsonl", record)
+    _append_jsonl("cooldown_events", record)
 
 
 # ---------------------------------------------------------------------------
@@ -232,4 +267,4 @@ def log_btc_paired_trade(
         "spread_bps": round(spread_bps, 4) if spread_bps else None,
         "skipped_reason": skipped_reason,
     }
-    _append_jsonl(f"maker_pilot_{_today_utc()}.jsonl", record)
+    _append_jsonl("maker_pilot", record)

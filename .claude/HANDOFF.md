@@ -1,94 +1,128 @@
-# Session Handoff — 2026-04-14 / 15 (overnight)
+# Session Handoff — 2026-04-15 (Filter Research)
 
 ## What We Did
 
-### Dashboard pipeline (full VM-side rebuild)
-- Retired the laptop `com.overnight-lab.trading-sync` launchd agent (backed up to `~/Library/LaunchAgents/.retired/`)
-- Built VM-side `~/bin/sync-dashboard.sh` that replaces both `sync-monitoring.sh` (5 JSONs only) and the laptop `cron-sync.sh` + `sync-state.sh` chain. Handles strategy data + live pseudo-strategies + paper state + monitoring JSONs + `manifest.json` regen + git push in one pass.
-- Connected Vercel `dashboard` project → `DanRWilloughby/overnight-lab` via API (was NOT git-connected before; laptop CLI had been doing the deploys)
-  - Root directory: `projects/2026-03-22_autoresearch-trading-dashboard/dashboard`
-  - Ignored build step: `git diff --quiet HEAD^ HEAD -- :/projects/2026-03-22_autoresearch-trading-dashboard/dashboard` (the `:/` anchor is critical — Vercel runs the command from rootDirectory, not repo root)
-  - Commit author on VM set to `DanRWilloughby` via noreply email `8854211+DanRWilloughby@users.noreply.github.com` so Vercel doesn't block deploys
-- Two crons on VM (openclaw): aggregator `*/15`, unified sync `2,17,32,47`
+### Live health check (restart since 00:27 UTC)
+- 42 trades over 12.78h, equity $9,500 → $9,253.87 (**–2.59%**)
+- Realized P&L –$44.65, fees $121.38 — **73% of the loss was fees, 27% was price**
+- Per symbol: BTC –$43.65, ETH –$102.25 (worst), SOL –$20.13
+- No real halts. 28 "manual kill flag" events logged but trading continued — side-channel bug, not P&L risk
+- HWM drift re-emerging: `hwm_track` log shows `hwm_new_realized: 10000.0` on 27 of 28 ticks, not the $9,505 post-reset peak. dd_new_pct at 7.6% against phantom $10K anchor, approaching 10% kill threshold
 
-### Monitoring invariant fix
-- `monitoring/aggregate.py`: corrected the `hwm_drift_detection` kill-switch invariant. Old check assumed unrealized ≥ 0 and fired RED (11/12 ticks) when strategy was underwater from start. Now checks the real Fix 5 property: "hwm_new only moves on realized gains." Dashboard switch green. Commit `2995e91`.
+### Fee model verified directly from CB order receipts
+Three tickets from 13:14 UTC today reproduced exactly:
+- **BTC**: 5 contracts @ $74,350 → $1.12 CB + $0.75 reg = $1.87 (3.0 bps × $3,717.50 = $1.1153 ✓)
+- **ETH**: 16 contracts @ $2,332 → $1.12 CB + $2.40 reg = $3.52
+- **SOL**: 9 contracts @ $83.74 → $1.13 CB + $1.35 reg = $2.48
 
-### Execution cost analysis (30m-concentrated HL Paper)
-- 1,297 HL paper trades × realistic CB execution costs → **HL paper +65.27% → realistic taker +44.67%** over Mar 27–Apr 14
-- Saved to `strategies/30m-concentrated/REALISTIC_EXECUTION_PROJECTION.md`
-- Key finding: ETH is the high-cost coin (9.58 bps taker vs BTC 5.06, SOL 6.57). Major methodology correction mid-session — first pass double-counted cross-venue basis as slippage via `abs()`; corrected adverse-only slippage is ~0 bps.
+Model confirmed: **`3.0 bps × notional + $0.15 × contracts` per side on CB VIP 4**. Contract multipliers: BTC 0.01, ETH 0.1, SOL 5.
 
-### Maker shadow rebuild (pure → hybrid)
-- Diagnosed: pure-maker shadows dropped 30% of trades (80% of OPEN_LONG). Structural — pure maker misses fills in trending markets.
-- Rebuilt `live/maker_shadow.py`: on maker miss, fall back to taker at live `actual_fill_price` with taker fee. Trades tagged `_MAKER_FILL` / `_TAKER_FALLBACK`.
-- Backed up pre-hybrid state + code to `~/auto-researchtrading/.backup-pre-hybrid-shadow/` on VM, reset state for clean baseline.
-- Built `scripts/measure_hybrid.py` diagnostic. Commit `cd70e10`.
+### Round-trip cost per coin (the number that matters)
+| Coin | RT fee | Break-even move | Edge RT (HL paper) | Edge/Cost |
+|---|---|---|---|---|
+| BTC | 10.1 bps | $74.90 on $74K | 22.8 bps | 2.26× |
+| **ETH** | **18.9 bps** | **$4.40 on $2,332** | 28.1 bps | **1.49×** |
+| SOL | 13.2 bps | $0.11 on $83.74 | 29.0 bps | 2.20× |
 
-### Circuit breaker halt diagnosis + clean reset (00:14–00:27 UTC)
-- **Live trader halted at 00:14:03 UTC**. Cron log said "manual kill flag detected" but the *real* first trigger (in `halt_events_2026-04-15.jsonl`) was: `"24h drawdown 5.03% from peak $10,000.00 exceeds 5.0% limit"`.
-- **Root cause: shared `state/kill.flag` between instances.** Paper-175x instance (correctly configured with 5% DD threshold for 1.75× leverage) halted on its own threshold and touched the shared flag. Live instance (10% threshold per Phase 1 fix) inherited the halt 1 second later.
-- **Fixes applied:**
-  - `risk/config.yaml`: `kill_flag_file: state/kill-live.flag`
-  - `risk/config-175x.yaml`: `kill_flag_file: state/kill-175x.flag`
-  - Live state `peak_equity`: $10,000 → **$9,500** (per Dan's request — reset DD clock to current baseline)
-  - Live state `equity_curve`: trimmed to 1 fresh point at reset ts
-  - `trade_log` preserved (202 entries)
-  - All kill flags cleared
-- **Phase 2 pilot NOT activated tonight** — explicit decision to wait for real hybrid shadow data (24h) before deploying. Rationale: no live smoke test post-Phase-1, stacking 5 unvalidated changes is high risk, strategy was flat overnight anyway. Commit `00516f0`.
+ETH's per-contract reg fee ($0.15 × 16 contracts = $2.40) dwarfs its bps component. ETH is the fee-heaviest coin and has the thinnest edge-to-cost margin.
+
+### Maker vs taker on the same 42 live trades
+Maker (mid level) would have saved $44.63 on 42 trades = **18% of total drawdown recovered**. Fee savings $39.19 (32% fee reduction) + price improvement $4.20. ETH is where maker matters most (+$41 alone).
+
+### HL paper simulation: ETH-drop hypothesis tested (REJECTED)
+1,335 HL trades over 19 days, realistic CB fees applied with compounding preserved:
+- **Baseline all 3 coins (realistic taker)**: +44.26%
+- **Drop ETH (taker)**: +33.05% — **11pp WORSE**
+- ETH contributes +$9,454 net over 19 days; dropping it forfeits that
+
+### Regime analysis (HL paper, 19 days)
+- Portfolio: 17 green / 3 red days (85% hit rate)
+- ETH: 14 green / 6 red (70% — worst)
+- **ETH on low-vol days: +$24 avg net (essentially break-even)**
+- **ETH on high-vol days: +$1,473 avg net (94% of ETH's total profit)**
+- ETH hour-of-day pattern (HL paper): Asia 00-07 had 82% fees-to-gross ratio; US session 17-23 had 32%
+
+### Volatility predictability validated on 944 days CB data (but unactionable for this strategy)
+- Lag-1 range autocorrelation: BTC +0.339, **ETH +0.400**, SOL +0.388, all p < 10⁻²⁷
+- After LOW prev-day, ETH has 51.8% chance of LOW today vs 7.1% after HIGH (t=-10.26)
+- **Signal is real and statistically overwhelming. But it doesn't help the strategy.**
+
+### Filter battery — 13 experiments on 944 days, ALL underperform baseline
+
+| Code | Filter | Δ Return | Δ Sharpe |
+|---|---|---|---|
+| BASE | No filter | — | 12.53 |
+| E1 | ETH half-size low-vol | –22% | –0.01 |
+| E2 | ETH no-new-entries low-vol | –36% | –0.05 |
+| E3 | All coins halfsize low-vol | –35% | +0.04 |
+| E4 | ETH skip extreme funding | –25% | –0.03 |
+| E5 | Hard cut: only 13-23 UTC | –100% | **–4.45** |
+| E6 | Half-size 00-12 UTC | –99.7% | –1.44 |
+| E7 | Narrower: only 14-23 UTC | –100% | –4.90 |
+| E8 | E5 + skip ETH hour-15 | –100% | –4.85 |
+| E9 | 1.5× size 17-23 UTC | +350% | –0.93 (MaxDD → 11.77%) |
+| E10 | 1.5× size 17-19 UTC | –19% | –0.81 |
+| E11 | 1.5× 17-23 + 0.5× 00-07 | –95% | –2.31 |
+| E12 | 1.25× during 13-23 UTC | +726% | –0.35 (MaxDD 9.86%) |
+
+**Every filter either underperforms or is equivalent to taking more risk (E12 is just "lever up").** The 30m-concentrated strategy's edge is regime-invariant over 944 days. Its internal feature stack (MTF momentum + MACD + RSI + HTF trend + ATR stops) self-selects entries well enough that external filters only remove alpha.
+
+### Account scaling correction (Dan caught this)
+I claimed larger accounts would outgrow the $0.15/contract fee. **Wrong.** Because contracts scale linearly with notional, per-contract fees stay at the same bps (~2 bps for BTC) at any account size. On CB perps there is no "outgrow the fees" lever. Only real reductions are: VIP tier upgrade, maker vs taker (0.5 bps), or different exchange.
+
+### Exchange research (US-accessible perpetuals, April 2026)
+| Venue | Status US | Fee model | Per-ct fee? | Notes |
+|---|---|---|---|---|
+| Coinbase | ✅ live | bps + per-contract | **$0.15** | Current |
+| **Bitnomial** | ✅ CFTC-regulated, live | **UNDISCLOSED** | Unknown | **Best unknown — worth calling** |
+| CME (via broker) | ✅ 24/7 from 2026-05-29 | per-contract | N/A | Dated futures, not perps |
+| Kraken US | ✅ (CME-only via NinjaTrader) | per-contract | N/A | Not perps |
+| Hyperliquid | ❌ ToS blocks US | flat bps only | **No** | Tier 0: 0.045% taker / –0.015% maker rebate |
+| Robinhood | ❌ EU only | flat bps | No | No US launch announced |
+
+**Hyperliquid fees verified from docs**: https://hyperliquid.gitbook.io/hyperliquid-docs/trading/fees
+
+**CFTC cleared US-regulated perps in July 2025**; Bitnomial first to market in March 2026; more venues expected "within weeks" per CFTC Chair Selig.
 
 ## Current State
 
-- **Live trader:** clean reset. Next cron 00:44 UTC. HWM=$9,500, 24h window=1 point, kill flag cleared, CB positions flat (Dan manually flattened before reset).
-- **Dashboard:** fully live at `https://dashboard-green-nu-53.vercel.app/`, 16 strategies populated, kill switches green.
-- **Maker shadows:** hybrid mode live since 23:28 UTC. 114 historical orders queued; first resolution at 23:46 showed 100% fill rate (backfill artifact). Real fill rates emerge over next 24h.
-- **Branch:** `fixes/phase2-maker-pilot`. Commits this session: `2995e91`, `cd70e10`, `0ceeda4`, `00516f0`. Not pushed.
+- **Live trader**: running cleanly post-reset. Equity $9,253.87, positions BTC+SOL, ETH flat
+- **Branch**: `fixes/phase2-maker-pilot` (not pushed)
+- **Phase 2 maker pilot**: BUILT, NOT DEPLOYED. Waiting on 24h hybrid shadow data (already accumulating; 157 trades at 81% fill rate as of earlier check)
+- **Filter research**: CLOSED. All hypotheses tested, all rejected. Strategy runs as-is.
 
 ## Pending / Not Yet Tested
 
-- [ ] Confirm 00:44 live cron shows `high_water=$9,500.00` and NO `TRADING HALTED` line
-- [ ] Wait 24h, rerun `scripts/measure_hybrid.py --remote` for real hybrid performance data per level
-- [ ] Decide Phase 2 production config (which maker aggressiveness) based on evidence, then deploy in daylight with reduced pilot size ($2K notional initially)
-- [ ] Consider pushing `fixes/phase2-maker-pilot` branch (Dan's call)
-- [ ] Clean up legacy scripts in overnight-lab repo: `cron-sync.sh`, `install-cron.sh`, `sync-state.sh` (inert without launchd agent)
+- [ ] Contact Bitnomial sales for perpetual fee schedule (the one unknown that could matter)
+- [ ] Phase 2 maker pilot activation (BTC, reduced notional, daylight hours, live observer)
+- [ ] ETH-drop sensitivity on 944 days at per-symbol REALISTIC fees (not just flat 6 bps avg) — marginal confirmation but probably won't flip the "keep ETH" call
+- [ ] Investigate halt-events-logged-but-trading-continues side-channel bug
+- [ ] Investigate hwm_track showing `hwm_new_realized: 10000.0` not $9,505 post-reset
+- [ ] Clean up BTC parquet data (one bad-tick row at 387% daily range)
 
 ## Next Steps (priority order)
 
-1. **Tomorrow morning:** check 00:44 + subsequent crons in `live/logs/30m-concentrated-live-cron.log` — confirm clean HWM restore + no halts
-2. **After ~24h of hybrid data:** rerun `python3 scripts/measure_hybrid.py --remote` — pick best aggressiveness level based on fill rate + vs-taker delta
-3. **Phase 2 activation:** deploy chosen level to BTC paired maker/taker pilot on live, **daylight hours**, **reduced pilot notional**, **with live observer**
-4. **ETH-drop sensitivity test** on scenarios C and E-75 (ETH carries ~16 bps round-trip; dropping it may preserve alpha at half cost)
-5. **Stop citing +65.3%** unqualified — use +44.67% as the realistic 30m-concentrated baseline in external reporting
+1. **Call/email Bitnomial** for their perpetual fee schedule. If their per-contract fee is <$0.15 or they use flat bps, ETH's break-even drops dramatically. This is the single highest-leverage unknown remaining.
+2. **Deploy Phase 2 maker pilot** once hybrid shadow has 48h+ of data. Start BTC-only at reduced notional during daylight hours. Expected +0.5–1 bps edge improvement per side.
+3. **Fix HWM-drift + halt-log side channels** before they become real P&L problems.
+4. **Ship strategy as-is.** Don't build filters. Don't drop ETH. Don't time-gate. All 13 experiments say the strategy edge is regime-invariant over 944 days.
+5. **Monitor new US-legal venues** as CFTC clears more. Watch for flat-bps pricing structure to arrive onshore.
 
 ## Quick Context
 
-Dense session: (1) wired dashboard VM-side after laptop retirement, (2) corrected false-alarm kill switch, (3) built defensible realistic-execution projection, (4) rebuilt maker shadows to hybrid with taker fallback, (5) diagnosed + fixed a cross-instance kill.flag cascade that halted live money overnight, (6) reset HWM to $9,500 for clean start. Dan caught a major methodology error mid-session (slippage `abs()` double-counting basis). Ended with explicit decision to NOT rush Phase 2 activation overnight — wait for evidence.
+Dense research session: verified CB fee model directly against order receipts, tested 13 filter variants on 944 days of real CB data, validated that the strategy's edge is surprisingly regime-invariant (no filter helps). Also confirmed HL's flat-bps model via docs, researched Bitnomial as the only US-legal alternative to CB perps. Dan correctly flagged that per-contract fees scale with account size (no "outgrowing" the fee drag on CB). The productive path forward is Phase 2 maker + Bitnomial fee inquiry, not filter engineering.
 
-## Files Changed (this session)
+## Files created this session
 
-- `monitoring/aggregate.py` — kill-switch invariant fix
-- `live/maker_shadow.py` — hybrid fallback (newly tracked in git)
-- `strategies/30m-concentrated/REALISTIC_EXECUTION_PROJECTION.md` — execution cost analysis
-- `scripts/measure_hybrid.py` — hybrid performance diagnostic
-- `risk/config.yaml` — `kill_flag_file: state/kill-live.flag`
-- `risk/config-175x.yaml` — `kill_flag_file: state/kill-175x.flag` (newly tracked)
-
-## VM-side changes (not all in local repo)
-
-- `~/bin/sync-dashboard.sh` — unified sync
-- `~/bin/sync-monitoring.sh` — superseded, not in cron
-- `~/dashboard-repo/` — fresh clone of overnight-lab used only for sync commits
-- `~/.ssh/dashboard_sync_ed25519` — deploy key registered on overnight-lab with write access
-- `~/Library/LaunchAgents/.retired/com.overnight-lab.trading-sync.plist.*` — retired laptop agent backup
-- `live/state/30m-concentrated_live_state.json.bak-reset-*` — pre-HWM-reset backup
-- `risk/config.yaml.bak-pre-split-*`, `risk/config-175x.yaml.bak-pre-split-*` — pre-split backups
-- Crontab: aggregator + sync-dashboard; sync-monitoring removed
-
-## Surprising findings worth remembering
-
-1. **Vercel's Ignored Build Step runs from rootDirectory, not repo root.** Path args need `:/` pathspec anchor.
-2. **Vercel blocks deploys from committers it can't map to a GitHub user.** Use the `<id>+<login>@users.noreply.github.com` format.
-3. **HL paper's 5 bps flat fee is wildly wrong for ETH on CB (9.58 bps real).** Per-contract regulatory passthrough is brutal on small-notional contracts.
-4. **"Slippage" from reconciled-fill logs is mostly cross-venue basis, not execution cost.** `abs()` double-counts. True adverse slippage ~0 bps.
-5. **Pure maker drops OPEN_LONG and CLOSE signals in trending markets.** Structural, not noise. Hybrid with taker fallback is the only way to model Phase 2 correctly.
-6. **Shared kill.flag between trading instances is a cross-contamination bug.** Per-instance paths are required when configs have different DD thresholds.
+- `/tmp/trading-check/analyze.py` — live state analysis
+- `/tmp/trading-check/backtest_eth_drop.py` — HL paper ETH-drop simulation
+- `/tmp/trading-check/regime_analysis.py` — 19-day regime buckets
+- `/tmp/trading-check/predictability.py` — 19-day autocorrelation test
+- `/tmp/trading-check/predictability_full.py` — 944-day autocorrelation test (the valid one)
+- `/tmp/trading-check/hour_of_day.py` — HL paper hour-of-day analysis
+- `/tmp/trading-check/run_filter_backtest.py` — first ETH-drop full-data backtest
+- `/tmp/trading-check/filter_experiments.py` — E1-E4 vol filters
+- `/tmp/trading-check/filter_tod_experiments.py` — E5-E8 time-of-day filters
+- `/tmp/trading-check/filter_boost_experiments.py` — E9-E12 size boosts
+- `/tmp/trading-check/{BTC,ETH,SOL}_30m.parquet` — cached CB historical data
+- `/tmp/trading-check/hl_paper_state.json` — cached HL paper state

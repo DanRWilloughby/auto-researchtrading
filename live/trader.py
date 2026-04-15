@@ -1017,10 +1017,14 @@ def main():
     dry_run = args.dry_run or os.environ.get("LIVE_TRADER_DRY_RUN", "").lower() in ("1", "true", "yes")
 
     # Configure monitoring/event_log to write JSONL files alongside other live logs.
+    # The instance name namespaces filenames as {prefix}_{instance}_{date}.jsonl
+    # so multiple trader instances sharing live/logs/ don't pollute each other's
+    # event streams (the live and paper-175x instances previously both wrote to
+    # halt_events_{date}.jsonl, mixing their halt events and HWM ticks).
     # See PLANNED_FIXES.md "Phase 1 logging requirements".
     try:
         from monitoring.event_log import set_log_dir as _set_monitoring_log_dir
-        _set_monitoring_log_dir(PROJECT_ROOT / "live" / "logs")
+        _set_monitoring_log_dir(PROJECT_ROOT / "live" / "logs", instance=args.instance)
     except Exception as e:
         logger.warning("Failed to configure monitoring log dir: %s", e)
 

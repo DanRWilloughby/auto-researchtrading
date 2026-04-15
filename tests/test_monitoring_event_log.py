@@ -215,3 +215,85 @@ class TestBtcPairedTradeLogging:
         r = records[0]
         assert r["maker_fill_px"] is None
         assert r["skipped_reason"] == "extreme_vol"
+
+
+class TestInstanceNamespacing:
+    """Each trader instance must get its own log filenames + instance tag on records.
+
+    Without this, multiple live trader instances writing to the same log_dir
+    cross-pollute each other (the paper-175x instance's halt events showed up
+    in the live instance's halt_events log, making it look like live was
+    halting every 30min when in reality only 175x was).
+    """
+
+    def test_filename_includes_instance_when_set(self, tmp_path):
+        event_log.set_log_dir(tmp_path, instance="live")
+        event_log.log_halt_event(
+            trigger_reason="test",
+            hwm_at_trigger=9500.0,
+            equity_at_trigger=9000.0,
+            open_positions={},
+            marks_at_trigger={},
+        )
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert (tmp_path / f"halt_events_live_{date}.jsonl").exists()
+        # Old un-namespaced filename must NOT be created
+        assert not (tmp_path / f"halt_events_{date}.jsonl").exists()
+
+    def test_record_tagged_with_instance(self, tmp_path):
+        event_log.set_log_dir(tmp_path, instance="paper-175x")
+        event_log.log_hwm_tick(
+            mtm_equity=10000.0, realized_equity=10000.0,
+            hwm_new_realized=10000.0, hwm_old_mtm=10000.0,
+            dd_new_pct=0.0, dd_old_pct=0.0, threshold_pct=5.0,
+        )
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        records = _read_jsonl(tmp_path / f"hwm_track_paper-175x_{date}.jsonl")
+        assert records[0]["instance"] == "paper-175x"
+
+    def test_two_instances_do_not_mix(self, tmp_path):
+        """The bug we're fixing: live and 175x instances sharing one filename."""
+        # Live writes a halt event at HWM=$9,505 (post-reset)
+        event_log.set_log_dir(tmp_path, instance="live")
+        event_log.log_halt_event("dd_breach", 9505.91, 9300.0, {}, {})
+        # 175x instance starts up, writes its own halt event at HWM=$10K
+        event_log.set_log_dir(tmp_path, instance="paper-175x")
+        event_log.log_halt_event("manual kill flag detected", 10000.0, 9500.0, {}, {})
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        live_records = _read_jsonl(tmp_path / f"halt_events_live_{date}.jsonl")
+        paper_records = _read_jsonl(tmp_path / f"halt_events_paper-175x_{date}.jsonl")
+        # Live file has only the live event
+        assert len(live_records) == 1
+        assert live_records[0]["hwm_at_trigger"] == 9505.91
+        assert live_records[0]["instance"] == "live"
+        # Paper file has only the 175x event
+        assert len(paper_records) == 1
+        assert paper_records[0]["hwm_at_trigger"] == 10000.0
+        assert paper_records[0]["instance"] == "paper-175x"
+
+    def test_no_instance_keeps_back_compat_filename(self, tmp_path):
+        """When set_log_dir is called without instance (or instance=None), the
+        old filename form is preserved. Existing tests pass unchanged."""
+        event_log.set_log_dir(tmp_path)  # no instance
+        event_log.log_skip_event(
+            symbol="BTC", target_notional_usd=1000, current_notional_usd=900,
+            delta_notional_usd=100, implied_fee_avoided_usd=0.3,
+            tolerance_used_usd=200, skip_reason="x",
+        )
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert (tmp_path / f"skip_events_{date}.jsonl").exists()
+        records = _read_jsonl(tmp_path / f"skip_events_{date}.jsonl")
+        assert "instance" not in records[0]  # no instance tag when unset
+
+    def test_instance_can_be_reset_to_none(self, tmp_path):
+        """Switching back to no-instance mode (e.g. for tests) clears the tag."""
+        event_log.set_log_dir(tmp_path, instance="live")
+        event_log.set_log_dir(tmp_path, instance=None)
+        event_log.log_cooldown_event(
+            ts_trigger_ms=1, ts_cleared_ms=2,
+            cooldown_duration_sec=1.0, dd_at_clear_pct=0.5,
+        )
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert (tmp_path / f"cooldown_events_{date}.jsonl").exists()
+        records = _read_jsonl(tmp_path / f"cooldown_events_{date}.jsonl")
+        assert "instance" not in records[0]
