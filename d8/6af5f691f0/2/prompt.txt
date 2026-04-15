@@ -544,3 +544,7 @@ okay modify the shadow to look at this and track it we'll monitor before testing
 ---
 
 Okay, can you save this as documentation with a list of all the things that we've done today together, as well as the findings and the hypothesis that we're tracking? Also, please can you confirm at this point that the shadow will be running the way that we want and that we'll be recording the data needed to verify whether we should do make or take, or open close, or both, etc?
+
+---
+
+wait you confirmed that this works but they're not committed?? is that true? or is this something different
