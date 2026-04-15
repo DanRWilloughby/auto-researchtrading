@@ -695,152 +695,20 @@ def run_one_tick(
             trade_record["signal_metadata"] = signal.metadata if hasattr(signal, "metadata") else None
         else:
             # --- LIVE: place real order on Coinbase ---
-            # Fix 6: BTC paired maker/taker split. If maker pilot is enabled for
-            # this symbol AND we're not in DD-approach state, split the order
-            # 50/50 between a taker leg (immediate market) and a maker leg
-            # (passive limit with timeout-fallback). Both placed sequentially.
-            # The paired observation is logged for direct A/B comparison.
-            maker_cfg = risk_mgr.config.maker_pilot
-            current_dd_pct = (
-                (risk_mgr.circuit_breaker.high_water - equity)
-                / risk_mgr.circuit_breaker.high_water * 100
-                if risk_mgr.circuit_breaker.high_water > 0 else 0.0
-            )
-            from exchanges.maker_logic import (
-                should_disable_maker_for_dd,
-                compute_realized_vol_bps,
-                compute_vol_aware_timeout,
-                split_target_for_pilot,
-            )
-            from monitoring.event_log import log_btc_paired_trade
-            import copy
-            use_maker_pilot = (
-                symbol in maker_cfg.enabled_symbols
-                and not should_disable_maker_for_dd(
-                    current_dd_pct,
-                    risk_mgr.config.circuit_breaker.max_dd_from_high_water_pct,
-                    maker_cfg.dd_approach_buffer_pct,
+            # NOTE: Phase 2 maker-pilot path reverted 2026-04-15: trader referenced
+            # risk_mgr.config.maker_pilot but RiskConfig has no such field, causing
+            # every live tick to crash. Restored taker-only path pending config wiring.
+            try:
+                result = client.place_market_order(
+                    symbol=symbol,
+                    target_notional_usd=effective_target,
+                    dry_run=False,
+                    skip_tolerance_usd=risk_mgr.config.order_safety.skip_tolerance_usd,
                 )
-            )
-
-            if use_maker_pilot:
-                # Compute trailing 15-min realized vol from this symbol's recent candles
-                hist = bar_data[symbol].history if symbol in bar_data else None
-                vol_bps = 0.0
-                if hist is not None and len(hist) > 3:
-                    recent_closes = list(hist["close"].tail(15))
-                    vol_bps = compute_realized_vol_bps(recent_closes)
-                effective_timeout = compute_vol_aware_timeout(
-                    base_timeout_sec=maker_cfg.base_timeout_sec,
-                    current_vol_bps=vol_bps,
-                    high_vol_threshold_bps=maker_cfg.high_vol_threshold_bps,
-                    extreme_vol_threshold_bps=maker_cfg.extreme_vol_threshold_bps,
-                    high_vol_timeout_sec=maker_cfg.high_vol_timeout_sec,
-                )
-                signal_ts_ms = int(time.time() * 1000)
-                bid, ask = client.fetch_best_bid_ask(symbol)
-                spread_bps = ((ask - bid) / bid * 10000.0) if (bid and ask and bid > 0) else None
-
-                if effective_timeout is None or bid is None or ask is None:
-                    # Vol too high or book invalid — skip maker, route entire order to taker
-                    skip_reason = "extreme_vol" if effective_timeout is None else "invalid_book"
-                    try:
-                        result = client.place_market_order(
-                            symbol=symbol, target_notional_usd=effective_target,
-                            dry_run=False,
-                            skip_tolerance_usd=risk_mgr.config.order_safety.skip_tolerance_usd,
-                        )
-                    except Exception as e:
-                        logger.error("Order placement exception: %s", e, exc_info=True)
-                        risk_mgr.alerts.order_error(f"Order exception: {e}", symbol=symbol)
-                        continue
-                    log_btc_paired_trade(
-                        signal_ts_ms=signal_ts_ms,
-                        signal_size_usd=effective_target,
-                        taker_fill_px=result.fill_price, taker_fill_time_ms=signal_ts_ms,
-                        taker_fee_usd=0.0,  # filled below in reconciliation
-                        maker_limit_px=None, maker_fill_px=None, maker_fill_time_ms=None,
-                        maker_fallback=False, maker_fallback_penalty_bps=0.0, maker_fee_usd=0.0,
-                        realized_vol_15m_at_signal_bps=vol_bps,
-                        bid=bid, ask=ask, spread_bps=spread_bps,
-                        skipped_reason=skip_reason,
-                    )
-                    # Continue to standard reconciliation below
-                else:
-                    # Split: taker leg first, then maker leg
-                    pilot_cfg_runtime = copy.copy(maker_cfg)
-                    pilot_cfg_runtime.base_timeout_sec = effective_timeout
-
-                    # Pre-order positions for split calculation
-                    pre_pos = client.get_positions()
-                    pre_contracts = pre_pos.get(symbol).contracts if symbol in pre_pos else 0
-                    pre_price = client.fetch_current_price(symbol)
-                    pre_notional = pre_contracts * client.contract_specs()[symbol].contract_size * pre_price
-
-                    taker_target, maker_target = split_target_for_pilot(
-                        target_notional_usd=effective_target,
-                        current_notional_usd=pre_notional,
-                        maker_fraction=maker_cfg.maker_fraction,
-                    )
-
-                    # Taker leg
-                    try:
-                        taker_result = client.place_market_order(
-                            symbol=symbol, target_notional_usd=taker_target, dry_run=False,
-                            skip_tolerance_usd=risk_mgr.config.order_safety.skip_tolerance_usd,
-                        )
-                    except Exception as e:
-                        logger.error("Pilot taker leg exception: %s", e, exc_info=True)
-                        risk_mgr.alerts.order_error(f"Pilot taker exception: {e}", symbol=symbol)
-                        continue
-
-                    # Maker leg via state machine
-                    try:
-                        maker_result, maker_obs = client.place_limit_order_with_fallback(
-                            symbol=symbol, target_notional_usd=maker_target,
-                            bid=bid, ask=ask, config=pilot_cfg_runtime, dry_run=False,
-                        )
-                    except Exception as e:
-                        logger.error("Pilot maker leg exception: %s", e, exc_info=True)
-                        maker_result, maker_obs = None, {"error": str(e)}
-
-                    # Log paired observation
-                    log_btc_paired_trade(
-                        signal_ts_ms=signal_ts_ms,
-                        signal_size_usd=effective_target,
-                        taker_fill_px=taker_result.fill_price if taker_result else None,
-                        taker_fill_time_ms=signal_ts_ms,
-                        taker_fee_usd=0.0,  # reconciled later
-                        maker_limit_px=(maker_obs or {}).get("limit_price"),
-                        maker_fill_px=(maker_obs or {}).get("fill_price"),
-                        maker_fill_time_ms=signal_ts_ms + int((maker_obs or {}).get("fill_time_sec", 0) * 1000),
-                        maker_fallback=bool((maker_obs or {}).get("is_fallback")),
-                        maker_fallback_penalty_bps=(
-                            (maker_obs or {}).get("fallback_decision").adverse_move_bps
-                            if (maker_obs or {}).get("fallback_decision") else 0.0
-                        ),
-                        maker_fee_usd=0.0,
-                        realized_vol_15m_at_signal_bps=vol_bps,
-                        bid=bid, ask=ask, spread_bps=spread_bps,
-                        skipped_reason=None,
-                    )
-
-                    # Use taker_result as the "result" for downstream reconciliation;
-                    # maker leg has its own fills tracked via maker_pilot_*.jsonl
-                    result = taker_result
-            else:
-                # Standard path: no maker pilot, full order via market
-                try:
-                    result = client.place_market_order(
-                        symbol=symbol,
-                        target_notional_usd=effective_target,
-                        dry_run=False,
-                        skip_tolerance_usd=risk_mgr.config.order_safety.skip_tolerance_usd,
-                    )
-                except Exception as e:
-                    logger.error("Order placement exception: %s", e, exc_info=True)
-                    risk_mgr.alerts.order_error(f"Order exception: {e}", symbol=symbol)
-                    continue
+            except Exception as e:
+                logger.error("Order placement exception: %s", e, exc_info=True)
+                risk_mgr.alerts.order_error(f"Order exception: {e}", symbol=symbol)
+                continue
 
             if not result.success:
                 logger.error("Order failed: %s — %s", symbol, result.error_message)
