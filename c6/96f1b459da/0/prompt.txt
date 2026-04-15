@@ -67,3 +67,40 @@ The posting of updates to the total_usd_balance visible to customers may lag by 
 ---
 
 okay so what is next to review and identify.  Yes please run this
+
+---
+
+hmmm I dont know if this is true tbh....
+The reason I say this is we backtested this when we built the strategy and it was incredibly strong.  Was there an error going all the way back to that? or did somehting change when we shifted to paper?
+
+---
+
+Here is what I would like to do.  I would like to build a backtest on 9 months of coinbase data using the EXACT perameters we have seen for coinbase.  We have minute by minute candles for all three coins.  This means, use the singal from close, pull the price at 14 and 44, taker only, fees PER Coin, and lets assume 3 bps slipage to be percise.  This will give us a much better picture.  Does any of this deviate from what is actuaally occuring in the live trading strategy.  Verify each piece directly in the code and clarify anything first or push back if needed.
+
+---
+
+1 i mean a. please verify.
+2.  Actually lets just use the 3bps and .15 cents per contract. I realize if the price of Bitcoin moves the bps on the fixed shifts.
+3. use the open
+4.  Ahh yes, what I mean is lets assume we get a worse price by 2-3bps when we execute a trade.
+5.  dont worry about circuit breaker, cool down, or those other assumptions.  Also we do have 1 minute candles already.  Find them.  
+so in summary for 5 test a.  
+ask me if there are any additional questions
+
+---
+
+I think we do have them they are here:
+
+Local machine                                                                                 
+                                                                                                
+  Primary working copies at /tmp/trading-check-refresh/:                                        
+                                                                                                
+  ┌────────────────────┬──────────────────────────────────────────────────────┬────────┐
+  │        File        │                       Coverage                       │  Size  │        
+  ├────────────────────┼──────────────────────────────────────────────────────┼────────┤
+  �───────┤
+  │ SOL_1m_9mo.parquet │ ~8 months (2025-08-15 → 2026-04-15), 252,563 candles │ ~22 MB │
+  └────────────────────┴──────────────────────────────────────────────────────┴────────┘    
+
+to answer your questions round to interger.
+use 10k like live and keep it clean for BPS observability although we will want a second pass about the compounding ROI.
