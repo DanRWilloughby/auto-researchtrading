@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "de645963b6cc",
+  "strategy": "manual-commit",
+  "branch": "fixes/phase2-maker-pilot",
+  "checkpoints_count": 7,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/de/645963b6cc/0/metadata.json",
+      "transcript": "/de/645963b6cc/0/full.jsonl",
+      "content_hash": "/de/645963b6cc/0/content_hash.txt",
+      "prompt": "/de/645963b6cc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 81,
+    "cache_creation_tokens": 109930,
+    "cache_read_tokens": 3238247,
+    "output_tokens": 29060,
+    "api_call_count": 41
+  }
+}
