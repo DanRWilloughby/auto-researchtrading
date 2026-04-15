@@ -1,0 +1,17 @@
+it just hit a break can you look into why i got an alert
+
+---
+
+why is it failing at 5% we need more buffer to 10% we just rewrote this.  Also lets reset the highpoint to  the current starting point of 9500 please. that way it can float up or down without having this impact naturally.  We'll still have previous trade data but it will look like its a more new analysis do you think that would be a good idea?  If we can do that then we should manually clear and restart clean. I manually flattened the positions so it'll bel ike just turning it on
+
+---
+
+yeah agree. also do you think that we should apply the maker taker test right now too given its a clean start and that seems very importnat
+
+---
+
+okay great then yes lets reset with a high water mark of 9500 to start and it'll be a clean start.
+
+---
+
+save and handoff
