@@ -67,6 +67,7 @@ PRICE_INCREMENTS = {
 INITIAL_EQUITY = 10000.0
 FEE_PER_CONTRACT = 0.15
 TAKER_BPS = 0.0003
+MAKER_BPS = 0.00025  # CB VIP 4: 2.5 bps maker. Previously omitted — treated as 0.
 
 # Price levels to test — fraction of spread from passive side toward aggressive
 # 0.0 = at bid/ask (most passive), 1.0 = crossing the spread (taker)
@@ -103,6 +104,16 @@ def load_shadow_state(level_id):
             "maker_pending": 0,
             "total_taker_fees_paid": 0.0,
             "total_maker_fees_hypothetical": 0.0,
+            # ADDED 2026-04-15: split by action_type (open vs close).
+            # 9-month backtest found hybrid maker is strongly +EV on closes
+            # and marginally -EV on opens. Tracking these separately here
+            # validates the split on real live fills before we'd deploy
+            # any closes-only hybrid. See by_action['open']['fills'] etc.
+            "by_action": {
+                "open":  {"shadowed": 0, "fills": 0, "misses": 0, "pending": 0},
+                "close": {"shadowed": 0, "fills": 0, "misses": 0, "pending": 0},
+                "unknown": {"shadowed": 0, "fills": 0, "misses": 0, "pending": 0},
+            },
         },
         "sim": {
             "initial_equity": INITIAL_EQUITY,
@@ -350,24 +361,56 @@ def check_pending_fills(client, pending):
         placed_ts = entry["placed_ts"]
         age_seconds = time.time() - placed_ts
 
-        if age_seconds < 60:
+        # FIX 2026-04-15: reduced from 1800 (30 min) to 240 (4 min) to match
+        # the hybrid maker-then-taker spec being tested in Phase 2. The 30-min
+        # window produced optimistic fill rates (~80%) that don't represent
+        # what a realistic production hybrid would capture; 4 min is the
+        # actual timeout we'd use before falling back to taker.
+        max_wait = 240
+
+        # Age threshold: need 30 seconds of observable 1-min candle data past
+        # placed_ts before we can check. Cron runs at XX:16 for trades at
+        # XX:14, so by the time check runs, we have ~2 min of candle history
+        # after placed_ts — plenty for a 4-min window.
+        if age_seconds < 30:
             still_pending.append(entry)
             continue
 
-        max_wait = 1800
-
         try:
-            start_ms = int(placed_ts * 1000) - 1800000
-            end_ms = int(time.time() * 1000)
-            candles = client.fetch_candles(symbol, "30m", start_ms, end_ms)
+            # FIX 2026-04-15: previously used 30m candles which inflated fill
+            # rates by checking price action that occurred BEFORE placed_ts.
+            # A 30m candle has a bar-open timestamp; the old filter
+            # `candle_ts_sec < placed_ts - 60` checked the bar-open but the
+            # candle covers [bar_open, bar_open+1800). So when placed_ts
+            # landed mid-bar, the candle's pre-placed price range counted
+            # toward "fill", which is impossible — orders can only fill from
+            # placed_ts forward.
+            #
+            # Switched to 1m candles. Each candle is a 60s window, so the
+            # temporal leakage is bounded at 1 minute (acceptable — prices
+            # within a single minute are usually stable enough that the edge
+            # case of "fill happened in the first second, before we placed"
+            # is negligible). Filter now strictly excludes candles whose
+            # bar-open is before placed_ts.
+            start_ms = int(placed_ts * 1000)
+            # Only look at candles up to max_wait seconds after placed_ts.
+            # Previously fetched up to now(), which meant we could count a
+            # fill that happened 30 min after place even with max_wait=240.
+            end_ms = int((placed_ts + max_wait) * 1000)
+            candles = client.fetch_candles(symbol, "1m", start_ms, end_ms)
 
             if candles is not None and len(candles) > 0:
                 filled = False
                 fill_candle_ts = None
+                window_end_sec = placed_ts + max_wait
                 for _, row in candles.iterrows():
                     candle_ts_sec = row["timestamp"] / 1000
-                    if candle_ts_sec < placed_ts - 60:
+                    # Strict: candle's bar-open must be at-or-after placed_ts
+                    # AND within the max_wait timeout window.
+                    if candle_ts_sec < placed_ts:
                         continue
+                    if candle_ts_sec > window_end_sec:
+                        break
                     if side == "BUY":
                         if row["low"] <= limit_price:
                             filled = True
@@ -465,8 +508,27 @@ def main():
         notional = abs(trade.get("notional_usd", 0))
         trade_ts = trade.get("ts", 0)
 
+        # ADDED 2026-04-15: classify open vs close.
+        # Uses target_pos from live trade log: if 0 after the fill, this trade
+        # closed an existing position; if non-zero, it opened or modified one.
+        # 9-month CB backtest showed closes are net-positive for hybrid maker
+        # (+$805K across 9 mo) while opens are mixed-to-negative (-$425K). The
+        # shadow needs to track these separately so we can validate the split
+        # empirically on live data before activating any closes-only hybrid.
+        target_pos = trade.get("target_pos", None)
+        if target_pos is None:
+            action_type = "unknown"
+        elif abs(target_pos) < 1e-6:
+            action_type = "close"
+        else:
+            action_type = "open"
+
         taker_fee = notional * TAKER_BPS + contracts * FEE_PER_CONTRACT
-        maker_fee = contracts * FEE_PER_CONTRACT
+        # FIX 2026-04-15: previously `maker_fee = contracts * FEE_PER_CONTRACT`,
+        # which omitted the 2.5 bps base rate and inflated reported maker savings
+        # ~6x vs reality. CB VIP 4 maker = 2.5 bps × notional + $0.15/contract.
+        # Real per-side savings vs taker = 0.5 bps × notional (~$0.19 on $3.7K trade).
+        maker_fee = notional * MAKER_BPS + contracts * FEE_PER_CONTRACT
 
         for level in PRICE_LEVELS:
             lid = level["id"]
@@ -483,6 +545,7 @@ def main():
             shadow_entry = {
                 "type": "shadow_comparison",
                 "level_id": lid,
+                "action_type": action_type,  # 'open' | 'close' | 'unknown' — see classification above
                 "ts": time.time(),
                 "trade_ts": trade_ts,
                 "symbol": symbol,
@@ -496,7 +559,13 @@ def main():
                 "book_best_ask": book["best_ask"],
                 "book_spread_bps": book["spread_bps"],
                 "spread_frac": level["spread_frac"],
-                "placed_ts": time.time(),
+                # FIX 2026-04-15: placed_ts should be the actual live trade
+                # time (when the maker would have been placed in production),
+                # NOT when the shadow cron happens to run. The shadow cron
+                # runs ~2 min after live cron, so using time.time() here
+                # systematically under-measures fills that happen in the
+                # first 2 minutes.
+                "placed_ts": trade_ts / 1000.0,  # ms → sec
                 "maker_filled": None,
             }
 
@@ -504,6 +573,10 @@ def main():
             st["stats"]["total_trades_shadowed"] += 1
             st["stats"]["total_taker_fees_paid"] += taker_fee
             st["stats"]["total_maker_fees_hypothetical"] += maker_fee
+            # ADDED 2026-04-15: per-action-type shadow count
+            act_bucket = st["stats"].setdefault("by_action", {}).setdefault(
+                action_type, {"shadowed": 0, "fills": 0, "misses": 0, "pending": 0})
+            act_bucket["shadowed"] += 1
 
         log_shadow_entry({
             "type": "shadow_multi",
@@ -511,6 +584,8 @@ def main():
             "trade_ts": trade_ts,
             "symbol": symbol,
             "side": side,
+            "action_type": action_type,  # ADDED 2026-04-15
+            "target_pos": target_pos,    # raw source for classification audit
             "contracts": contracts,
             "actual_fill": actual_fill,
             "book_bid": book["best_bid"],
@@ -547,11 +622,20 @@ def main():
             actual_fill = entry.get("actual_fill_price", maker_price)
             notional = entry.get("notional_usd") or \
                 abs(contracts) * CONTRACT_SIZES.get(symbol, 1.0) * actual_fill
+            # Fallback taker pays full taker fee at the actual fill price.
+            # Note: see parallel fix at line ~469 — maker_fee now correctly
+            # includes the 2.5 bps base rate (not zero bps as before).
             taker_fee = notional * TAKER_BPS + abs(contracts) * FEE_PER_CONTRACT
             trade_ts = entry.get("trade_ts", int(time.time() * 1000))
 
+            # ADDED 2026-04-15: per-action-type fill/miss tracking
+            entry_action = entry.get("action_type", "unknown")
+            act_bucket = st["stats"].setdefault("by_action", {}).setdefault(
+                entry_action, {"shadowed": 0, "fills": 0, "misses": 0, "pending": 0})
+
             if entry.get("maker_filled"):
                 st["stats"]["maker_would_have_filled"] += 1
+                act_bucket["fills"] += 1
                 te = apply_trade_to_sim(sim, symbol, side, contracts,
                                         maker_price, maker_fee, trade_ts)
                 te["action"] = te["action"].replace("_MAKER_SIM", "_MAKER_FILL")
@@ -561,6 +645,7 @@ def main():
                 # take at the live actual-fill price with taker fee.
                 # This is what the production hybrid execution path does.
                 st["stats"]["maker_would_have_missed"] += 1
+                act_bucket["misses"] += 1
                 st["stats"].setdefault("taker_fallback_count", 0)
                 st["stats"]["taker_fallback_count"] += 1
                 te = apply_trade_to_sim(sim, symbol, side, contracts,
@@ -594,6 +679,26 @@ def main():
         equity = ec[-1]["equity"] if ec else INITIAL_EQUITY
         logger.info("%-12s | %6d | %6d | %6d | %6.1f%% | $%9.2f",
                     lid, stats["total_trades_shadowed"], filled, missed, fill_pct, equity)
+
+    # ADDED 2026-04-15: per-action-type split (open vs close).
+    # This is what we need to validate the closes-only hybrid policy
+    # before considering any production activation.
+    logger.info("")
+    logger.info("=== Per-action split (validates the 9-mo backtest finding) ===")
+    logger.info("%-12s | %-8s | %6s | %6s | %6s | %7s", "Level", "Action", "Shadow", "Fills", "Misses", "Fill %")
+    logger.info("-" * 65)
+    for level in PRICE_LEVELS:
+        lid = level["id"]; st = states[lid]
+        by_act = st["stats"].get("by_action", {})
+        for act in ("open", "close", "unknown"):
+            d = by_act.get(act, {})
+            shadowed = d.get("shadowed", 0); fills = d.get("fills", 0); misses = d.get("misses", 0)
+            if shadowed == 0 and fills == 0 and misses == 0:
+                continue
+            resolved = fills + misses
+            fp = fills / resolved * 100 if resolved else 0
+            logger.info("%-12s | %-8s | %6d | %6d | %6d | %6.1f%%",
+                        lid, act, shadowed, fills, misses, fp)
 
     logger.info("=== Multi-Level Maker Shadow complete ===")
 
