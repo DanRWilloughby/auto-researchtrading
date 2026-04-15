@@ -265,3 +265,7 @@ okay can you save this please. so we can come back to it in the future and then 
 ---
 
 yes go ahead and make the changes you recommend.  And lets also fix the two side-channel bugs.
+
+---
+
+okay go ahead and commit split and then deploy
