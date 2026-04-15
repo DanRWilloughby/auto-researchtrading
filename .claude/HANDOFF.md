@@ -1,77 +1,81 @@
-# Session Handoff - 2026-04-14
+# Session Handoff — 2026-04-14 (evening)
 
 ## What We Did
 
-### Diagnosed live trading underperformance
-- Live $10K instance (started Apr 11 19:08 UTC) was at -$428 net after 3 days while HL paper made +$13.6K on same days
-- Built progressively more accurate analyses across ~30 iterations:
-  - Per-symbol fee verification (BTC 5.08 / ETH 9.65 / SOL 6.59 bps effective)
-  - Fee structure decomposed into CB commission (3.0 bps taker) + $0.15/contract fixed regulatory passthrough
-  - Verified directly from CB account screen: VIP 4 derivatives 2.5 maker / 3.0 taker, $0.15 applies BOTH sides
-  - Maker savings is **0.5 bps per trade**, not the 4 bps the prior shadow analysis assumed
-- HL→CB price drift measured: −10 bps constant basis, 3-6 bps stdev. Self-cancels over round-trips.
-- Cascade root-cause traced to circuit breaker code (`live/trader.py:477` + `risk/circuit_breaker.py:80-83`):
-  `equity = cash + unrealized_sum` → ratchets HWM on transient MTM spikes during settlement → phantom peaks → spurious cascade triggers
-- ~$840 of -$428 loss attributable to operational bugs (cascade events $608 + SKIP fee leak $231); strategy itself was ~breakeven
+### Dashboard pipeline (full VM-side rebuild)
+- Retired the laptop `com.overnight-lab.trading-sync` launchd agent (backed up to `~/Library/LaunchAgents/.retired/`)
+- Built VM-side `~/bin/sync-dashboard.sh` that replaces both `sync-monitoring.sh` (5 JSONs only) and the laptop `cron-sync.sh` + `sync-state.sh` chain. Handles strategy data + live pseudo-strategies + paper state + monitoring JSONs + `manifest.json` regen + git push in one pass.
+- Connected Vercel `dashboard` project → `DanRWilloughby/overnight-lab` via API (was NOT git-connected before despite appearances; laptop CLI had been doing the deploys)
+  - Root directory: `projects/2026-03-22_autoresearch-trading-dashboard/dashboard`
+  - Ignored build step: `git diff --quiet HEAD^ HEAD -- :/projects/2026-03-22_autoresearch-trading-dashboard/dashboard` (the `:/` anchor was needed — Vercel runs the command from rootDirectory, not repo root; plain path failed silently)
+  - Commit author identity on VM set to `DanRWilloughby` via noreply email `8854211+DanRWilloughby@users.noreply.github.com` so Vercel doesn't block deploys
+- Two crons on VM (openclaw):
+  - `*/15 * * * *` — aggregator (`python -m monitoring.aggregate`)
+  - `2,17,32,47 * * * *` — unified sync (`~/bin/sync-dashboard.sh`)
+- All 16 strategies now appear correctly on dashboard with proper paper/experiment flags
 
-### Built Phase 1 fixes (5 commits, deployed live)
-Branch: `fixes/phase1-infrastructure`
-- **Fix 1** — SKIP tolerance check ($200 in `place_market_order`, matches paper sim) — `exchanges/coinbase_client.py`
-- **Fix 5** — HWM ratchets on `realized_equity` only; DD ratio still uses MTM — `risk/circuit_breaker.py`, `risk/manager.py`, `live/trader.py`
-- **Fix 3** — Halt allows close/reduce signals, blocks open/scale-up/flip — `risk/manager.py`, `live/trader.py`
-- **Fix 4** — Auto-reset cooldown (2hr) replaces manual kill-flag deletion — `risk/circuit_breaker.py`, `risk/config.py`
-- **Fix 2** — DD threshold widened 24h: 15% → 10% (aligned with HWM kill switch) — `risk/config.yaml`
-- Per-fix attribution logging (JSONL emitters) — `monitoring/event_log.py`
-- Dashboard JSON aggregator — `monitoring/aggregate.py`
-- Smoke test (27 end-to-end checks) — `scripts/smoke_test_phase1.py`
-- 66 unit tests added
+### Monitoring invariant fix
+- `monitoring/aggregate.py`: corrected the `hwm_drift_detection` kill-switch invariant. The old check `hwm_new_realized > hwm_old_mtm` assumed unrealized P&L ≥ 0 and fired RED (11/12 ticks) when strategy was underwater from start. Now checks the actual Fix 5 property: "hwm_new only moves on realized gains, never on unrealized noise." Dashboard switch flipped to green.
+- Committed as `2995e91`.
 
-### Deployed Phase 1 to VM (2026-04-14 ~20:43 UTC)
-- Backed up all replaced files to `/home/openclaw/auto-researchtrading/.backup-pre-phase1/`
-- Reset `peak_equity` to $10,000 in live, paper-cb-early, paper-175x state files
-- Clamped 69 phantom equity_curve points (above $10K) on live state
-- Deleted pre-existing kill flag manually
-- First post-deploy tick (20:44): trader started clean, HWM dual-track logging confirmed working
-- Strategy fired 3 SELL orders (BTC/ETH/SOL) — first live trades since Apr 14 09:44 cascade
+### Execution cost analysis (30m-concentrated HL Paper)
+- Pulled 1,297 HL paper trades + 473 CB live-paper trades + 128 reconciliation events + 198 maker shadow book snapshots
+- Ran compounding re-simulation on HL paper with realistic CB execution costs
+- Headline result: **HL paper +65.27% → CB-taker realistic +44.67%** over same Mar 27 – Apr 14 period
+- Saved to `strategies/30m-concentrated/REALISTIC_EXECUTION_PROJECTION.md`
+- Key finding: ETH is the high-cost coin (9.58 bps taker vs BTC 5.06, SOL 6.57). Big methodology correction mid-session: first pass double-counted cross-venue basis as slippage; corrected adverse-only slippage is ~0 bps.
 
-### Built Phase 2 — BTC paired maker/taker pilot (2 commits, NOT deployed)
-Branch: `fixes/phase2-maker-pilot` (off Phase 1)
-- Pure decision logic in `exchanges/maker_logic.py` (vol-aware timeout, DD-disable, fallback decisions, splitting, state machine)
-- SDK wrappers in `coinbase_client.py` (book fetch, post-only limit, status poll, cancel, orchestration)
-- BTC split branching in `live/trader.py`
-- `MakerPilotConfig` in `risk/config.{py,yaml}` — DISABLED BY DEFAULT (`enabled_symbols: []`)
-- Paired-trade emitter + Phase 2 aggregator
-- Phase 2 smoke test (22 checks)
-- 56 new unit tests (122 total)
-
-### Documentation
-- `PLANNED_FIXES.md` — comprehensive fix catalog with status snapshot, deploy log, evidence
-- `DASHBOARD_HANDOFF.md` — standalone build doc for whoever creates the dashboard tab
-- All 4 monitoring JSON schemas + sample data + tab layout + acceptance criteria
+### Maker shadow rebuild (pure → hybrid)
+- Diagnosed maker shadow underperformance: shadows took only 84-89 trades vs taker's 120 (30% miss rate, concentrated in OPEN_LONG: 3-5 vs 23, and CLOSE: 11-14 vs 33). Structural failure — pure maker drops signals in trending markets.
+- Rebuilt `live/maker_shadow.py`: on maker miss, fall back to taker at live `actual_fill_price` with taker fee. Trades tagged `_MAKER_FILL` or `_TAKER_FALLBACK`.
+- Backed up pre-hybrid state + code to `~/auto-researchtrading/.backup-pre-hybrid-shadow/` on VM, reset shadow state files for clean baseline.
+- Committed as `cd70e10`.
+- Built `scripts/measure_hybrid.py` diagnostic — pulls VM state, reports per-level fill rate / fee bps / return / vs-taker. Run with `--remote` flag.
 
 ## Current State
 
-- **Phase 1 LIVE** on VM. Trader resumed trading at 20:44 UTC. HWM correctly reset to $10K via realized-equity ratcheting. Per-fix JSONL emitters writing to `live/logs/`.
-- **Phase 2 BUILT** locally on `fixes/phase2-maker-pilot` branch, all tests pass, NOT pushed to VM yet. Disabled-by-default config means deploying it changes nothing until `enabled_symbols: [BTC]` is set.
-- **Backup** of pre-Phase-1 production files at `/home/openclaw/auto-researchtrading/.backup-pre-phase1/` for rollback.
-- **Two open branches:** `fixes/phase1-infrastructure` (deployed, 6 commits ahead of `autotrader/30m-exp1`) and `fixes/phase2-maker-pilot` (built, 2 additional commits).
+- **Live trader:** healthy, cron firing on 14,44 schedule. 3 shorts held (BTC/ETH/SOL opened at 22:14), last 3 crons returned no signals (expected — strategy doesn't trade every bar). MTM ~$9,543, cash $9,545, daily P&L flat at -$203.
+- **Dashboard:** fully live at `https://dashboard-green-nu-53.vercel.app/`, reading from VM sync every 15 min, all 16 strategies populated. Kill switches both green.
+- **Maker shadows:** hybrid mode live since 23:28 UTC. First cron resolution at 23:46 showed artificially high 100% fill rate (backfill artifact from 2-day lookback candles). Real fill rates will emerge over next 24h.
+- **Branch:** `fixes/phase2-maker-pilot`, 2 new commits this session (`2995e91`, `cd70e10`) — not pushed.
 
 ## Pending / Not Yet Tested
 
-- [ ] Phase 1 has NOT yet had a real cascade trigger to test Fix 5 in production. Need to wait for next volatile period to confirm phantom peaks don't trigger.
-- [ ] Phase 2 maker pilot — `place_limit_order_with_fallback` orchestration tested via mocked SDK only. First real CB SDK call happens when activated.
-- [ ] No `baseline_pre_phase1.json` snapshot file exists yet on VM — should be generated before extended attribution analysis (instructions in `PLANNED_FIXES.md` "Phase 1 logging requirements").
-- [ ] `monitoring/aggregate.py` is not on a cron schedule yet on VM — needs to be added per `DASHBOARD_HANDOFF.md` instructions.
-- [ ] Dashboard tab not yet built — handoff doc complete, awaiting UI team.
+- [ ] Wait 24h, rerun `scripts/measure_hybrid.py --remote` — by then shadows will have fresh (non-backfill) fill data and the level comparison becomes meaningful
+- [ ] Confirm unified `sync-dashboard.sh` has been running on cron at :02/:17/:32/:47 without incident (first run done manually at 22:52, next scheduled runs happen automatically)
+- [ ] Consider pushing `fixes/phase2-maker-pilot` branch (or not — Dan's call)
+- [ ] Clean up legacy scripts in overnight-lab repo when convenient: `cron-sync.sh`, `install-cron.sh`, `sync-state.sh` in `projects/.../dashboard/scripts/` (dead but harmless)
 
 ## Next Steps
 
-- [ ] **Tomorrow:** monitor Phase 1 health. Check `live/logs/hwm_track_*.jsonl` for any `would_old_trigger=true AND did_new_trigger=false` events (phantom triggers prevented = direct attribution to Fix 5).
-- [ ] **Day 3+ post-deploy (~Apr 17):** if Phase 1 stable, deploy Phase 2 (`scp` files + edit config) per the activation steps in `PLANNED_FIXES.md`.
-- [ ] **Hand `DASHBOARD_HANDOFF.md` to UI team** when ready. They need to: (a) set up cron for `python -m monitoring.aggregate`, (b) sync the 4 JSONs to the dashboard host, (c) build the tab.
-- [ ] **Generate `baseline_pre_phase1.json`** from the pre-Phase-1 trade log + state for clean attribution math.
-- [ ] After 1-2 weeks of Phase 2 maker data on BTC, decide whether to extend to ETH (biggest absolute fee burden).
+- [ ] In ~24h, rerun measure_hybrid.py, review each maker aggressiveness level's fill rate + vs-taker delta, pick production config for Phase 2 pilot
+- [ ] Run ETH-drop sensitivity test on scenarios C and E-75 (ETH carries ~16 bps round-trip; worth testing whether dropping it preserves alpha)
+- [ ] The +65.3% HL paper headline should never appear unqualified again — use +44.67% (scenario C) as the realistic baseline in any external reporting
 
 ## Quick Context
 
-The maker pilot's $50-80/4-day projection at $10K is small but the infrastructure is the deliverable — paired BTC observations under matched conditions give us ground truth on fill rates, price improvement, and tail behavior that can't be measured from sim alone. Real value is when capital scales or when applied to ETH (where the fee burden is highest). Don't budget the pilot as P&L; budget it as R&D.
+Two-hour session to (1) wire the dashboard properly after the laptop cron retirement, (2) correct a false-alarm kill switch, and (3) build a defensible realistic-execution projection for the 30m-concentrated strategy. Major pivot mid-session when Dan caught that initial slippage numbers were bogus (cross-venue basis double-counted via abs()). Finished by rebuilding the maker shadow sims to use hybrid fallback so they actually model production Phase 2 behavior. All changes committed, not pushed.
+
+## Files Changed (this session)
+
+- `monitoring/aggregate.py` — kill-switch invariant fix
+- `live/maker_shadow.py` — hybrid fallback (newly tracked in git)
+- `strategies/30m-concentrated/REALISTIC_EXECUTION_PROJECTION.md` — execution cost analysis
+- `scripts/measure_hybrid.py` — hybrid performance diagnostic
+
+## VM-side changes (not in local repo)
+
+- `~/bin/sync-dashboard.sh` — unified sync (source of truth is this VM file)
+- `~/bin/sync-monitoring.sh` — superseded, still on disk, not in cron
+- `~/dashboard-repo/` — fresh clone of overnight-lab used only for sync commits
+- `~/.ssh/dashboard_sync_ed25519` — deploy key registered on github.com/DanRWilloughby/overnight-lab with write access
+- `~/Library/LaunchAgents/.retired/com.overnight-lab.trading-sync.plist.20260414` — retired laptop agent backup
+- Crontab: added aggregator + sync-dashboard; removed sync-monitoring
+
+## Surprising findings worth remembering
+
+1. HL paper's flat 5 bps fee assumption is wildly wrong for ETH on CB (real = 9.58 bps). ETH per-contract regulatory passthrough is disproportionate on small-notional contracts.
+2. Vercel's Ignored Build Step runs from the project root directory, not repo root. Path args need `:/` pathspec anchor to hit the right location.
+3. The "slippage" on reconciled-fill logs is mostly CB-vs-internal-feed basis, which cancels in round-trips. Using abs() double-counts. True adverse slippage is ~0 bps.
+4. Pure maker without taker fallback systematically drops signals in trending markets — specifically OPEN_LONG and CLOSE actions. This is structural, not noise.
+5. Vercel CAN'T associate commits to users if the email doesn't match a GitHub user. The no-reply format `<numeric-id>+<username>@users.noreply.github.com` works.
