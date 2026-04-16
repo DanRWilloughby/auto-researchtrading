@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "11f3764ca09b",
+  "strategy": "manual-commit",
+  "branch": "fixes/phase2-maker-pilot",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "engine/prepare.py",
+    "strategies/30m-concentrated/LIVE_RECONCILIATION.md",
+    "strategies/30m-concentrated/backtest_coinbase_9mo.py",
+    "strategies/30m-concentrated/backtest_fill_timing_ab.py",
+    "strategies/30m-concentrated/backtest_noflip.py",
+    "strategies/30m-concentrated/backtest_via_engine.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/11/f3764ca09b/0/metadata.json",
+      "transcript": "/11/f3764ca09b/0/full.jsonl",
+      "content_hash": "/11/f3764ca09b/0/content_hash.txt",
+      "prompt": "/11/f3764ca09b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 294,
+    "cache_creation_tokens": 428204,
+    "cache_read_tokens": 42744819,
+    "output_tokens": 262768,
+    "api_call_count": 179
+  }
+}
