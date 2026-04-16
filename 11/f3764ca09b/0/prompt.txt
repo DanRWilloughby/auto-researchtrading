@@ -112,3 +112,7 @@ hmmm okay but can you go back and check because we previously did a backtest on 
 ---
 
 yes do both please.
+
+---
+
+okay now. a major question. if this is true. then why is the HL paper trading performing so well is there a similar bug there???
