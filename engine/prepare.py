@@ -1009,20 +1009,37 @@ def run_backtest(strategy, data: dict, interval="1h",
                 else:
                     old_notional = abs(current_pos)
                     old_entry = portfolio.entry_prices.get(sig.symbol, exec_price)
-                    if abs(sig.target_position) < abs(current_pos):
-                        reduced = abs(current_pos) - abs(sig.target_position)
-                        if old_entry > 0 and abs(current_pos) > 0:
+                    # Detect sign flip: current and target are opposite directions.
+                    # Treat it as a full close (realizing P&L on current_pos) followed by
+                    # an open at exec_price for target_position. Prior logic had no
+                    # branch for abs(target)==abs(current) flips and used the wrong
+                    # formula for mismatched-magnitude flips, leaving stale entry
+                    # prices and unrealized P&L on the books.
+                    same_side = (current_pos > 0) == (sig.target_position > 0)
+                    if not same_side:
+                        if old_entry > 0:
                             direction = 1.0 if current_pos > 0 else -1.0
-                            pnl = direction * reduced * (exec_price - old_entry) / old_entry
-                        portfolio.cash += reduced + pnl
-                    elif abs(sig.target_position) > abs(current_pos):
-                        added = abs(sig.target_position) - abs(current_pos)
-                        portfolio.cash -= added
-                        if old_notional + added > 0:
-                            new_entry = (old_entry * old_notional + exec_price * added) / (old_notional + added)
-                            portfolio.entry_prices[sig.symbol] = new_entry
-                    portfolio.positions[sig.symbol] = sig.target_position
-                    trade_log.append(("modify", sig.symbol, delta, exec_price, pnl, ts, fee, sig.metadata))
+                            pnl = direction * abs(current_pos) * (exec_price - old_entry) / old_entry
+                        portfolio.cash += abs(current_pos) + pnl
+                        portfolio.cash -= abs(sig.target_position)
+                        portfolio.entry_prices[sig.symbol] = exec_price
+                        portfolio.positions[sig.symbol] = sig.target_position
+                        trade_log.append(("close", sig.symbol, -current_pos, exec_price, pnl, ts, fee, sig.metadata))
+                    else:
+                        if abs(sig.target_position) < abs(current_pos):
+                            reduced = abs(current_pos) - abs(sig.target_position)
+                            if old_entry > 0 and abs(current_pos) > 0:
+                                direction = 1.0 if current_pos > 0 else -1.0
+                                pnl = direction * reduced * (exec_price - old_entry) / old_entry
+                            portfolio.cash += reduced + pnl
+                        elif abs(sig.target_position) > abs(current_pos):
+                            added = abs(sig.target_position) - abs(current_pos)
+                            portfolio.cash -= added
+                            if old_notional + added > 0:
+                                new_entry = (old_entry * old_notional + exec_price * added) / (old_notional + added)
+                                portfolio.entry_prices[sig.symbol] = new_entry
+                        portfolio.positions[sig.symbol] = sig.target_position
+                        trade_log.append(("modify", sig.symbol, delta, exec_price, pnl, ts, fee, sig.metadata))
 
         # Recalculate equity after trades
         unrealized_pnl = 0.0

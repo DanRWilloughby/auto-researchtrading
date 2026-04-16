@@ -411,20 +411,36 @@ def run_one_tick(strategy, state: dict, symbols: list, interval: str,
             # Modify
             old_notional = abs(current_pos)
             old_entry = portfolio.entry_prices.get(sig.symbol, exec_price)
-            if abs(sig.target_position) < abs(current_pos):
-                reduced = abs(current_pos) - abs(sig.target_position)
+            # Sign flip: close the existing position fully (realizing P&L), then
+            # open the target at exec_price. Prior logic had no branch for
+            # abs(target)==abs(current) flips and used mismatched-magnitude flip
+            # math incorrectly, leaving stale entry prices attached to the
+            # new-sign position and silently hiding realized losses.
+            same_side = (current_pos > 0) == (sig.target_position > 0)
+            if not same_side:
                 if old_entry > 0:
                     direction = 1.0 if current_pos > 0 else -1.0
-                    pnl = direction * reduced * (exec_price - old_entry) / old_entry
-                portfolio.cash += reduced + pnl
-            elif abs(sig.target_position) > abs(current_pos):
-                added = abs(sig.target_position) - abs(current_pos)
-                portfolio.cash -= added
-                if old_notional + added > 0:
-                    new_entry = (old_entry * old_notional + exec_price * added) / (old_notional + added)
-                    portfolio.entry_prices[sig.symbol] = new_entry
-            portfolio.positions[sig.symbol] = sig.target_position
-            action = "MODIFY"
+                    pnl = direction * abs(current_pos) * (exec_price - old_entry) / old_entry
+                portfolio.cash += abs(current_pos) + pnl
+                portfolio.cash -= abs(sig.target_position)
+                portfolio.entry_prices[sig.symbol] = exec_price
+                portfolio.positions[sig.symbol] = sig.target_position
+                action = "CLOSE"
+            else:
+                if abs(sig.target_position) < abs(current_pos):
+                    reduced = abs(current_pos) - abs(sig.target_position)
+                    if old_entry > 0:
+                        direction = 1.0 if current_pos > 0 else -1.0
+                        pnl = direction * reduced * (exec_price - old_entry) / old_entry
+                    portfolio.cash += reduced + pnl
+                elif abs(sig.target_position) > abs(current_pos):
+                    added = abs(sig.target_position) - abs(current_pos)
+                    portfolio.cash -= added
+                    if old_notional + added > 0:
+                        new_entry = (old_entry * old_notional + exec_price * added) / (old_notional + added)
+                        portfolio.entry_prices[sig.symbol] = new_entry
+                portfolio.positions[sig.symbol] = sig.target_position
+                action = "MODIFY"
 
         # Shadow execution: track cost deltas for each scenario
         if "shadow_cost_deltas" not in state:
