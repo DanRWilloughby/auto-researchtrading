@@ -1,3 +1,7 @@
+# DEPRECATED 2026-04-16: Results below produced by engine with flip-accounting bug.
+# Sharpe, win rate, return, and profit factor are unreliable for strategies that
+# emit sign-flip signals (most strategies). Rerun on fixed engine before trusting.
+# See strategies/30m-concentrated/LIVE_RECONCILIATION.md for details.
 exp	split	score	sharpe	return_pct	max_dd_pct	trades	win_rate	profit_factor	symbols	date	notes
 baseline	val	936.14	25.07	1203.5	0.7396	15631	75.5	9.55	BTC/ETH/SOL	2026-03-27	30% sizing, BTC/ETH/SOL only
 exp0-base-confirm	val	936.14	25.07	1203.5	0.7396	15631	75.5	9.55	BTC/ETH/SOL	2026-03-27	baseline confirmation: 0.30 sizing

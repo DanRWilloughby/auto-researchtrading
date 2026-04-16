@@ -1,3 +1,7 @@
+# DEPRECATED 2026-04-16: Results below produced by engine with flip-accounting bug.
+# Sharpe, win rate, return, and profit factor are unreliable for strategies that
+# emit sign-flip signals (most strategies). Rerun on fixed engine before trusting.
+# See strategies/30m-concentrated/LIVE_RECONCILIATION.md for details.
 exp	split	score	sharpe	return_pct	max_dd_pct	trades	win_rate	profit_factor	symbols	date	notes
 baseline	val	-0.76	-0.61	-6.9	18.0320	2519	50.0	1.08	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Funding rate mean-reversion baseline: contrarian funding, momentum filter, ATR stops
 exp1	val	0.51	0.51	3.8	11.0356	1896	51.4	1.21	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	entry zscore 1.5->2.0 (higher conviction)

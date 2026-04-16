@@ -1,3 +1,7 @@
+# DEPRECATED 2026-04-16: Results below produced by engine with flip-accounting bug.
+# Sharpe, win rate, return, and profit factor are unreliable for strategies that
+# emit sign-flip signals (most strategies). Rerun on fixed engine before trusting.
+# See strategies/30m-concentrated/LIVE_RECONCILIATION.md for details.
 exp	split	score	sharpe	return_pct	max_dd_pct	trades	win_rate	profit_factor	symbols	date	notes
 baseline	val	655.65	32.73	495.3	0.4915	31528	76.4	10.69	AVAX/BTC/DOGE/ETH/LINK/SOL	2026-03-27	20% sizing, ATR 7, TP 2%
 exp0-size-025	val	811.96	32.53	814.3	0.6143	31528	76.4	10.74	AVAX/BTC/DOGE/ETH/LINK/SOL	2026-03-27	BASE_POSITION_PCT=0.25

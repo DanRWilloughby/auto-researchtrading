@@ -1,3 +1,7 @@
+# DEPRECATED 2026-04-16: Results below produced by engine with flip-accounting bug.
+# Sharpe, win rate, return, and profit factor are unreliable for strategies that
+# emit sign-flip signals (most strategies). Rerun on fixed engine before trusting.
+# See strategies/30m-concentrated/LIVE_RECONCILIATION.md for details.
 exp	split	score	sharpe	return_pct	max_dd_pct	trades	win_rate	profit_factor	symbols	date	notes
 baseline	val	-5.12	-4.71	-21.9	23.2447	1954	49.5	0.77	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Pairs stat arb baseline: ETH/BTC, SOL/ETH, AVAX/SOL, LINK/ETH
 exp1	val	-3.59	-3.59	-7.8	8.8041	1289	47.0	0.79	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	wider entry 2.5, tighter exit 0.2, stop 3.5, size 3%, cooldown 5

@@ -1,3 +1,7 @@
+# DEPRECATED 2026-04-16: Results below produced by engine with flip-accounting bug.
+# Sharpe, win rate, return, and profit factor are unreliable for strategies that
+# emit sign-flip signals (most strategies). Rerun on fixed engine before trusting.
+# See strategies/30m-concentrated/LIVE_RECONCILIATION.md for details.
 exp	split	score	sharpe	return_pct	max_dd_pct	trades	win_rate	profit_factor	symbols	date	notes
 baseline	2024-07-01_2025-03-31	541.76	25.08	445.1	3.8826	6122	68.6	4.55	EEM/GLD/IWM/QQQ/SOXX/SPY/TLT/XBI/XLE/XLF	2026-04-10	First equity backtest: 10 ETFs, 2x leverage, 0.5bps slip, 0 fees
 oos-test	2025-04-01_2026-04-10	755.21	25.90	914.1	4.0868	8430	69.5	4.36	EEM/GLD/IWM/QQQ/SOXX/SPY/TLT/XBI/XLE/XLF	2026-04-10	OOS test: Apr 2025 - Apr 2026 (includes tariff selloff, real forward test)

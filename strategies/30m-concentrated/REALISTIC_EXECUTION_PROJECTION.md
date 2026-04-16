@@ -1,3 +1,5 @@
+> **DEPRECATED 2026-04-16** — All numbers in this document are derived from HL paper data produced by an engine with a flip-accounting bug that silently hid realized losses on position reversals. The +44.67% "realistic" taker baseline and all maker-pilot projections are unreliable. See `LIVE_RECONCILIATION.md` in this directory for the full post-mortem. Fixed-engine backtest on 9 months of Coinbase data shows the strategy at **-95% return**, not +44%.
+
 # Realistic Execution Projection — 30m-Concentrated
 
 **Date:** 2026-04-14

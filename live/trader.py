@@ -263,6 +263,9 @@ def _resync_state_post_orders(state: dict, client: "CoinbaseClient") -> None:
         state["cumulative_realized_pnl_total"] = round(
             available_margin - initial_equity, 4
         )
+        state["cumulative_fees_total"] = round(
+            (state.get("prior_days_fees") or 0.0) + coinbase_daily_fees, 4
+        )
     else:
         # --- PAPER instance ---
         # Uses own sim_open_lots for positions; sums enriched pnl/fee from
@@ -455,6 +458,33 @@ def run_one_tick(
     now_ms = int(time.time() * 1000)
     interval_min = INTERVAL_CONFIG[interval]["minutes"]
     interval_ms = interval_min * 60 * 1000
+
+    # --- 0. Daily rollover — advance bookkeeping when UTC date changes ---
+    today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    prev_date = state.get("current_utc_date")
+    if prev_date and prev_date != today_utc:
+        state["prior_days_realized_pnl"] = round(
+            (state.get("prior_days_realized_pnl") or 0.0)
+            + (state.get("daily_price_pnl") or 0.0),
+            4,
+        )
+        state["prior_days_fees"] = round(
+            (state.get("prior_days_fees") or 0.0)
+            + (state.get("daily_fees") or 0.0),
+            4,
+        )
+        state["cumulative_fees_total"] = round(
+            (state.get("prior_days_fees") or 0.0), 4
+        )
+        state["daily_price_pnl"] = 0.0
+        state["daily_fees"] = 0.0
+        state["daily_total_pnl"] = 0.0
+        logger.info(
+            "Daily rollover: %s → %s (prior_days realized=$%.2f fees=$%.2f)",
+            prev_date, today_utc,
+            state["prior_days_realized_pnl"], state["prior_days_fees"],
+        )
+    state["current_utc_date"] = today_utc
 
     # --- 1. Fetch live account state from Coinbase ---
     try:

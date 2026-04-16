@@ -1,3 +1,7 @@
+# DEPRECATED 2026-04-16: Results below produced by engine with flip-accounting bug.
+# Sharpe, win rate, return, and profit factor are unreliable for strategies that
+# emit sign-flip signals (most strategies). Rerun on fixed engine before trusting.
+# See strategies/30m-concentrated/LIVE_RECONCILIATION.md for details.
 exp	split	score	sharpe	return_pct	max_dd_pct	trades	win_rate	profit_factor	symbols	date	notes
 exp0	val	21.33	21.33	85.6	0.3753	8466	80.5	17.75	BTC/ETH/SOL	2026-03-23	seed 30m strategy adapted from 1h champion
 exp4	val	21.37	21.37	85.7	0.3753	8462	80.5	17.95	BTC/ETH/SOL	2026-03-23	wider ATR stop 5.5->6.5 (let winners run)

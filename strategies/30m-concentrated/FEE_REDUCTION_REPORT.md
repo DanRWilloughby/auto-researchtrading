@@ -1,3 +1,5 @@
+> **DEPRECATED 2026-04-16** — Numbers in this document were produced by an engine with a flip-accounting bug. See `LIVE_RECONCILIATION.md` for details.
+
 # Fee-Reduction Strategy Variant Comparison
 
 **Date:** 2026-04-12

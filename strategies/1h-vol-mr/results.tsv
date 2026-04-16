@@ -1,3 +1,7 @@
+# DEPRECATED 2026-04-16: Results below produced by engine with flip-accounting bug.
+# Sharpe, win rate, return, and profit factor are unreliable for strategies that
+# emit sign-flip signals (most strategies). Rerun on fixed engine before trusting.
+# See strategies/30m-concentrated/LIVE_RECONCILIATION.md for details.
 exp	split	score	sharpe	return_pct	max_dd_pct	trades	win_rate	profit_factor	symbols	date	notes
 baseline	val	3.07	3.07	46.6	12.0746	815	55.8	1.70	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Vol mean-reversion baseline: BB-based regime detection, MR in high-vol, breakout in low-vol
 exp1-vectorize	val	2.03	2.03	48.2	13.6259	1318	55.0	1.38	AVAX/BTC/DOGE/ETH/LINK/SOL/SUI/XRP	2026-03-26	Vectorize bb_width_percentile and vol_zscore: sliding_window_view instead of Python loops
