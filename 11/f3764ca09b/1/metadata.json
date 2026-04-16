@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.5.3",
+  "checkpoint_id": "11f3764ca09b",
+  "session_id": "76641220-a0b5-4f2d-8880-548d08f455f4",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-16T00:22:44.552011Z",
+  "branch": "fixes/phase2-maker-pilot",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "strategies/30m-concentrated/backtest_coinbase_9mo.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-6[1m]",
+  "turn_id": "e889d4c136c1",
+  "token_usage": {
+    "input_tokens": 7291,
+    "cache_creation_tokens": 2476746,
+    "cache_read_tokens": 159552685,
+    "output_tokens": 502090,
+    "api_call_count": 361
+  },
+  "session_metrics": {
+    "turn_count": 69
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-16T00:22:41.91598Z",
+    "agent_lines": 482,
+    "agent_removed": 0,
+    "human_added": 1017,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1499,
+    "total_lines_changed": 1524,
+    "agent_percentage": 31.627296587926505,
+    "metric_version": 2
+  }
+}

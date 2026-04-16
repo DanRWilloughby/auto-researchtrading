@@ -3,7 +3,7 @@
   "checkpoint_id": "11f3764ca09b",
   "strategy": "manual-commit",
   "branch": "fixes/phase2-maker-pilot",
-  "checkpoints_count": 4,
+  "checkpoints_count": 6,
   "files_touched": [
     "engine/prepare.py",
     "strategies/30m-concentrated/LIVE_RECONCILIATION.md",
@@ -18,13 +18,19 @@
       "transcript": "/11/f3764ca09b/0/full.jsonl",
       "content_hash": "/11/f3764ca09b/0/content_hash.txt",
       "prompt": "/11/f3764ca09b/0/prompt.txt"
+    },
+    {
+      "metadata": "/11/f3764ca09b/1/metadata.json",
+      "transcript": "/11/f3764ca09b/1/full.jsonl",
+      "content_hash": "/11/f3764ca09b/1/content_hash.txt",
+      "prompt": "/11/f3764ca09b/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 294,
-    "cache_creation_tokens": 428204,
-    "cache_read_tokens": 42744819,
-    "output_tokens": 262768,
-    "api_call_count": 179
+    "input_tokens": 7585,
+    "cache_creation_tokens": 2904950,
+    "cache_read_tokens": 202297504,
+    "output_tokens": 764858,
+    "api_call_count": 540
   }
 }
