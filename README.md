@@ -19,13 +19,16 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/experiments-103-C9A84C" alt="Experiments" />
-  <img src="https://img.shields.io/badge/max%20drawdown-0.3%25-brightgreen" alt="Drawdown" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
 </p>
 
 ---
 
-An AI agent autonomously modifies a single file (`strategy.py`), backtests each change against historical [Hyperliquid](https://hyperliquid.xyz) perp data, and keeps only improvements. Adapts [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) pattern for trading strategy discovery. Starting from a simple momentum baseline (Sharpe 2.7), the system discovered a 6-signal ensemble strategy achieving **Sharpe 21.4 with 0.3% max drawdown** — a 7.9x improvement over 103 fully autonomous experiments.
+An AI agent autonomously modifies a single file (`strategy.py`), backtests each change against historical [Hyperliquid](https://hyperliquid.xyz) perp data, and keeps only improvements. Adapts [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) pattern for trading strategy discovery. Over 103 fully autonomous experiments the system evolved a simple momentum baseline (Sharpe 2.7) into a 6-signal ensemble that backtested at **Sharpe 21.4 with 0.3% max drawdown** — a number that turned out to be wrong.
+
+A sign-flip accounting bug in the backtest engine inflated results for most strategies that emit reversal signals. On the fixed engine the same strategy scores **Sharpe −7.02** (honest backtest return **−95.20%**, vs the buggy +4,848,808%), and live trading confirmed the direction: **−$587.68 net** since inception. The full buggy-vs-honest reconciliation is in [`strategies/30m-concentrated/LIVE_RECONCILIATION.md`](strategies/30m-concentrated/LIVE_RECONCILIATION.md). The autonomous research loop is real and reusable; the headline number it found was not.
+
+> **⚠️ Deprecated results (2026-04-16).** Every Sharpe / score / return figure below — the Quick Start sample output, the Score Progression table, the Key Discoveries table — was produced by the pre-fix engine and is preserved as a record of the experiment, **not as a performance claim**. Honest numbers live in [`LIVE_RECONCILIATION.md`](strategies/30m-concentrated/LIVE_RECONCILIATION.md).
 
 ---
 
